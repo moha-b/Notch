@@ -39,7 +39,7 @@ enum OllamaLocalUsage {
         }
     }
 
-    /// Converts the `/api/ps` payload into Codenotch limit windows.
+    /// Converts the `/api/ps` payload into Notch limit windows.
     static func windows(from data: Data) throws -> [LimitWindow] {
         let decoder = JSONDecoder()
         let response = try decoder.decode(PSResponse.self, from: data)

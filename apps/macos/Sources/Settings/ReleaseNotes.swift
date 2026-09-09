@@ -209,7 +209,7 @@ enum ReleaseNotes {
                     title: "Codex is read live instead of from a log",
                     detail: "The figure came from a file Codex writes during a "
                           + "turn, so it was as old as the last time you used "
-                          + "it — three days stale in one case. Codenotch now "
+                          + "it — three days stale in one case. Notch now "
                           + "asks Codex itself, and matches its own panel."
                 ),
                 ReleaseNote.Change(
@@ -275,7 +275,7 @@ enum ReleaseNotes {
             changes: [
                 ReleaseNote.Change(
                     title: "Antigravity shows its actual quota",
-                    detail: "Google will not answer Codenotch directly, so it asks "
+                    detail: "Google will not answer Notch directly, so it asks "
                           + "Antigravity's own language server instead — the same "
                           + "place Antigravity's usage panel gets its figure."
                 ),
@@ -318,10 +318,10 @@ enum ReleaseNotes {
                 ReleaseNote.Change(
                     title: "Claude, Cursor, Codex and Gemini",
                     detail: "Each read from the tool already signed in on this Mac. "
-                          + "Codenotch never asks for a password."
+                          + "Notch never asks for a password."
                 ),
                 ReleaseNote.Change(
-                    title: "Choose where Codenotch appears",
+                    title: "Choose where Notch appears",
                     detail: "In the Dock, in the menu bar, or nowhere at all."
                 )
             ]

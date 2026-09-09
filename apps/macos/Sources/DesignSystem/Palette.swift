@@ -30,16 +30,16 @@ extension Color {
     }
 }
 
-private struct CodenotchReduceTransparencyKey: EnvironmentKey {
+private struct NotchReduceTransparencyKey: EnvironmentKey {
     static let defaultValue: Bool = false
 }
 
 extension EnvironmentValues {
     /// True when macOS Accessibility "Reduce Transparency" is enabled in system settings,
-    /// or explicitly overridden via `.environment(\.codenotchReduceTransparency, ...)`.
-    var codenotchReduceTransparency: Bool {
-        get { self[CodenotchReduceTransparencyKey.self] || self.accessibilityReduceTransparency }
-        set { self[CodenotchReduceTransparencyKey.self] = newValue }
+    /// or explicitly overridden via `.environment(\.notchReduceTransparency, ...)`.
+    var notchReduceTransparency: Bool {
+        get { self[NotchReduceTransparencyKey.self] || self.accessibilityReduceTransparency }
+        set { self[NotchReduceTransparencyKey.self] = newValue }
     }
 }
 

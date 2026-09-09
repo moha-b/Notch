@@ -2,9 +2,9 @@ $ErrorActionPreference = 'Stop'
 Push-Location (Join-Path $PSScriptRoot '..')
 try {
     # The helper must exist before Tauri resolves bundle resources.
-    cargo build --locked --release --package codenotch-hook
+    cargo build --locked --release --package notch-hook
     if ($LASTEXITCODE -ne 0) { throw 'Hook build failed.' }
-    Push-Location codenotch
+    Push-Location notch
     try {
         # Invoke the native shim: PowerShell's npm shim consumes the -- separator.
         tauri.cmd build --ci --bundles nsis -- --locked

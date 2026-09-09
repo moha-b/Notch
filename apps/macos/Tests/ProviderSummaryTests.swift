@@ -1,5 +1,5 @@
 import XCTest
-@testable import Codenotch
+@testable import Notch
 
 /// What the settings row is allowed to offer.
 ///

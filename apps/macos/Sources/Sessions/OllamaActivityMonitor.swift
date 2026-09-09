@@ -4,7 +4,7 @@ import Foundation
 /// Monitors active models running in memory on the local Ollama daemon (`http://127.0.0.1:11434`).
 ///
 /// When an LLM is loaded or generating tokens in Ollama, feeds live `AgentSession` records
-/// into Codenotch's inner activity ring.
+/// into Notch's inner activity ring.
 @MainActor
 final class OllamaActivityMonitor: ObservableObject, AgentActivityMonitor {
     @Published private(set) var sessions: [AgentSession] = []

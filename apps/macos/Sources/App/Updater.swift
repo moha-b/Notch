@@ -1,18 +1,7 @@
 import Foundation
 import Sparkle
 
-/// Keeps the app up to date on its own.
-///
-/// Silent by design: `SUAutomaticallyUpdate` and `SUEnableAutomaticChecks` in
-/// the Info.plist mean Sparkle checks, downloads and installs without asking,
-/// and without the first-launch permission prompt it otherwise shows. For an
-/// agent app with no windows that is the only sensible behaviour — there is no
-/// natural moment to interrupt someone who never looks at it.
-///
-/// Two things it still cannot do silently, which is macOS rather than Sparkle:
-/// the app has to be writable by the user installing the update (true for a
-/// normal drag to /Applications, false if it was copied there with `sudo`), and
-/// the replacement is applied on relaunch rather than mid-flight.
+/// Notification-only update checks. Sparkle asks before download and installation.
 @MainActor
 final class Updater: NSObject, ObservableObject, SPUUpdaterDelegate {
     /// What the last check came to, in words the settings sheet can show.
@@ -33,12 +22,12 @@ final class Updater: NSObject, ObservableObject, SPUUpdaterDelegate {
             switch self {
             case .idle:          return nil
             case .checking:      return "Checking…"
-            case .upToDate:      return "Codenotch is up to date."
-            case .found(let v):  return "Version \(v) is available and will install shortly."
+            case .upToDate:      return "Notch is up to date."
+            case .found(let v):  return "Version \(v) is available — choose Update to download it."
             case .unreachable:
                 // The one people actually hit, and the one Sparkle's wording
                 // hides: nothing is wrong with the app or the machine.
-                return "Couldn't reach the update server. Codenotch will try "
+                return "Couldn't reach the update server. Notch will try "
                      + "again on its own — nothing is wrong with this copy."
             case .failed(let why): return why
             }
@@ -53,11 +42,14 @@ final class Updater: NSObject, ObservableObject, SPUUpdaterDelegate {
 
     /// Mirrors the preference, so switching it off really does stop the checks
     /// rather than only hiding them.
+    var enabled: Bool { Bundle.main.object(forInfoDictionaryKey: "NotchChannel") as? String == "stable" }
+
     var automatic: Bool {
-        get { controller.updater.automaticallyChecksForUpdates }
+        get { enabled && controller.updater.automaticallyChecksForUpdates }
         set {
+            guard enabled else { return }
             controller.updater.automaticallyChecksForUpdates = newValue
-            controller.updater.automaticallyDownloadsUpdates = newValue
+
         }
     }
 
@@ -65,16 +57,22 @@ final class Updater: NSObject, ObservableObject, SPUUpdaterDelegate {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
     }
 
-    var lastChecked: Date? { controller.updater.lastUpdateCheckDate }
+    var lastChecked: Date? { enabled ? controller.updater.lastUpdateCheckDate : nil }
 
     /// Starts the scheduled checks. Deliberately not in `init`: the controller
     /// is lazy so that `self` exists before it is handed over as the delegate.
-    func start() { _ = controller }
+    func start() {
+        guard enabled else { return }
+        if controller.updater.automaticallyChecksForUpdates {
+            controller.updater.checkForUpdatesInBackground()
+        }
+    }
 
     /// The manual path, for someone who does not want to wait for the schedule.
     /// This one *does* show UI — it was asked for, so silence would read as a
     /// broken button.
     func checkNow() {
+        guard enabled else { outcome = .failed("Updates are disabled in development builds."); return }
         outcome = .checking
         controller.updater.checkForUpdates()
     }

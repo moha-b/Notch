@@ -79,7 +79,7 @@ private struct TooltipShell<Content: View>: View {
     let direction: NotchEdge.TooltipDirection
     @ViewBuilder let content: Content
 
-    @Environment(\.codenotchReduceTransparency) private var reduceTransparency
+    @Environment(\.notchReduceTransparency) private var reduceTransparency
 
     private var card: some View {
         // The same arrangement that makes the notch fold work: the contents
@@ -266,7 +266,7 @@ private struct LimitWindowRow: View {
     let now: Date
     let resetTimeFormat: ResetTimeFormat
     let showsUsagePace: Bool
-    @Environment(\.codenotchAccentColor) private var accentColor
+    @Environment(\.notchAccentColor) private var accentColor
 
     private var band: UsageBand { UsageBand.band(for: window.usedFraction ?? 0) }
     private var trackWidth: CGFloat { NotchLayout.cardWidth - 2 * NotchLayout.cardPadding - inset }
@@ -595,7 +595,7 @@ private struct BlockedRow: View {
 private struct SessionRow: View {
     let session: AgentSession
     let now: Date
-    @Environment(\.codenotchAccentColor) private var accentColor
+    @Environment(\.notchAccentColor) private var accentColor
 
     private var stateColor: Color {
         switch session.state {

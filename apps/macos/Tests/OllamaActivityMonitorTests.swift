@@ -1,5 +1,5 @@
 import XCTest
-@testable import Codenotch
+@testable import Notch
 
 // The monitor is `@MainActor`, so its statics cannot be reached from a
 // nonisolated synchronous test body.

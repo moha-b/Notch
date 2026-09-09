@@ -33,7 +33,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = Self.icon()
-        item.button?.toolTip = "Codenotch"
+        item.button?.toolTip = "Notch"
 
         let menu = NSMenu()
         menu.delegate = self
@@ -84,7 +84,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         ).target = self
         menu.addItem(.separator())
         menu.addItem(
-            withTitle: "Quit Codenotch", action: #selector(quit), keyEquivalent: "q"
+            withTitle: "Quit Notch", action: #selector(quit), keyEquivalent: "q"
         ).target = self
     }
 

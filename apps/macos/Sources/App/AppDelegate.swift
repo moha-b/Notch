@@ -45,7 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Before Preferences reads anything, or the first launch flag and
         // every choice would be read from an empty domain.
-        Preferences.migrateFromPreviousName()
+        // Notch has a separate preference domain; upstream settings are never imported.
         let preferences = Preferences()
         self.preferences = preferences
 
@@ -57,9 +57,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let fleet = NotchFleet(scope: preferences.notchScope, edge: preferences.notchEdge)
         self.notchFleet = fleet
 
-        // `CODENOTCH_DEMO=1` puts the design frame's three providers on screen
+        // `NOTCH_DEMO=1` puts the design frame's three providers on screen
         // with its numbers, for screenshots and for eyeballing the layout.
-        if ProcessInfo.processInfo.environment["CODENOTCH_DEMO"] == "1" {
+        if ProcessInfo.processInfo.environment["NOTCH_DEMO"] == "1" {
             fleet.setSnapshots(Fixtures.snapshots())
         } else {
             // Nothing needs a browser session at the moment. `WebSessionProvider`
@@ -262,10 +262,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .sink { [weak fleet] ids in fleet?.setRefreshing(ids) }
                 .store(in: &cancellables)
 
-            // CODENOTCH_DISCOVER=<url> loads that page in the signed-in WebView
+            // NOTCH_DISCOVER=<url> loads that page in the signed-in WebView
             // and logs the API calls it makes — for finding an undocumented
             // endpoint by watching the site rather than guessing at path names.
-            if let target = ProcessInfo.processInfo.environment["CODENOTCH_DISCOVER"],
+            if let target = ProcessInfo.processInfo.environment["NOTCH_DISCOVER"],
                let url = URL(string: target),
                let provider = webProviders.first(where: { url.host?.contains($0.id) == true })
                    ?? webProviders.first {

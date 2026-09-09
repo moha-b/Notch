@@ -6,7 +6,7 @@ enum NotchLayout {
     // The notch body
     /// The depth the design frame fixes: a 44pt ring with an even margin
     /// either side of it.
-    static let sideBodyDepth = Design.px(186)
+    static let sideBodyDepth = NotchTokens.sideBodyDepth
 
     /// How deep the notch is, which is **not** the same on every edge.
     ///
@@ -28,38 +28,38 @@ enum NotchLayout {
     /// the ring rather than beside it, but it is the same distance.
     static func ringMargin(for edge: NotchEdge) -> CGFloat { sideRingMargin }
 
-    static let curlRadius   = Design.px(103)
+    static let curlRadius = NotchTokens.curlRadius
     /// The small inverse corner where a flush bar meets the screen's frame.
     ///
     /// The hardware notch is moulded into the bezel rather than cut out of it,
     /// and a bar that meets the frame with a raw square edge does not read that
     /// way. Deliberately a fraction of `curlRadius`: enough to round the join,
     /// nowhere near enough to taper the bar the way a full flare would.
-    static let bezelFillet  = Design.px(28)
-    static let cornerRadius = Design.px(78.8)
-    static let padTop       = Design.px(69.5)   // body top -> first ring
-    static let padBottom    = Design.px(50.1)   // last label -> body bottom
-    static let cellSpacing  = Design.px(83.5)   // label bottom -> next ring top
+    static let bezelFillet = NotchTokens.bezelFillet
+    static let cornerRadius = NotchTokens.cornerRadius
+    static let padTop = NotchTokens.padTop   // body top -> first ring
+    static let padBottom = NotchTokens.padBottom   // last label -> body bottom
+    static let cellSpacing = NotchTokens.cellSpacing   // label bottom -> next ring top
 
     // The resting pill. Not in the design frame — it is the notch folded away,
     // sized to read as a deliberate handle rather than a sliver of chrome.
-    static let pillWidth  = Design.px(26)
-    static let pillHeight = Design.px(210)
+    static let pillWidth = NotchTokens.pillWidth
+    static let pillHeight = NotchTokens.pillHeight
     /// The pill is small, so the region that wakes it is deliberately larger.
-    static let pillHotZone = Design.px(90)
+    static let pillHotZone = NotchTokens.pillHotZone
 
     // A provider cell
-    static let ringDiameter  = Design.px(117)   // 44pt, the design spec's anchor
-    static let trackStroke   = Design.px(15.5)
-    static let progressStroke = Design.px(8)
-    static let glyphSize     = Design.px(46)
-    static let ringLabelGap  = Design.px(26.9)
+    static let ringDiameter = NotchTokens.ringDiameter   // 44pt, the design spec's anchor
+    static let trackStroke = NotchTokens.trackStroke
+    static let progressStroke = NotchTokens.progressStroke
+    static let glyphSize = NotchTokens.glyphSize
+    static let ringLabelGap = NotchTokens.ringLabelGap
 
     // The activity indicator. Not in the design frame — sized to sit in the gap
     // between the glyph (46px across) and the inside edge of the track (86px),
     // so it never crowds either.
-    static let activityDiameter = Design.px(72)
-    static let activityStroke   = Design.px(5.5)
+    static let activityDiameter = NotchTokens.activityDiameter
+    static let activityStroke = NotchTokens.activityStroke
 
     // The settings orb: it lives *below* the notch, not inside it. At rest only
     // an arc of its edge is drawn, tucked into the corner the bottom flare
@@ -77,10 +77,10 @@ enum NotchLayout {
     //   flare : centre (edge - curlRadius, shapeBottom)   radius 38.5pt
     //   arc   : same centre                                radius 28.5pt
     //   disc  : same centre                                diameter 46.5pt
-    static let orbDiameter = Design.px(124)
-    static let orbStroke   = Design.px(18)
+    static let orbDiameter = NotchTokens.orbDiameter
+    static let orbStroke = NotchTokens.orbStroke
     /// Distance from the flare's curve in to the resting arc.
-    static let orbGap      = Design.px(27)
+    static let orbGap = NotchTokens.orbGap
     /// Radius of the resting arc: the flare's radius, less the gap.
     static var orbArcRadius: CGFloat { curlRadius - orbGap }
     /// The resting arc's circle when it traces a *convex* corner: outside the
@@ -100,7 +100,7 @@ enum NotchLayout {
     static func orbCornerOffset(corner: CGFloat) -> CGFloat {
         (corner + orbGap + orbDiameter / 2) / 2.0.squareRoot()
     }
-    static let orbGlyph    = Design.px(56)
+    static let orbGlyph = NotchTokens.orbGlyph
     /// What the arc scales to as it hides.
     ///
     /// The arc is concentric with the bottom flare, `orbGap` inside it, so
@@ -114,40 +114,40 @@ enum NotchLayout {
     /// notch, which is what read as flying off.
     static var orbMergeScale: CGFloat { (curlRadius + orbStroke) / orbArcRadius }
     /// Generous, like the pill's — it is a small target on a screen edge.
-    static let orbHotZone  = Design.px(152)
+    static let orbHotZone = NotchTokens.orbHotZone
 
     // The hover tooltip
-    static let cardWidth     = Design.px(600)
-    static let cardCorner    = Design.px(49.5)
-    static let cardPadding   = Design.px(32)
-    static let tailLength    = Design.px(75)
-    static let tailHeight    = Design.px(87)
-    static let tailGap       = Design.px(28)    // tail tip -> notch body edge
-    static let barHeight     = Design.px(10.5)
-    static let headerGap     = Design.px(17)    // glyph -> title
-    static let headerToBlock = Design.px(21)
-    static let labelToBar    = Design.px(16.8)
-    static let barToUsed     = Design.px(17.8)
-    static let blockSpacing  = Design.px(20)
-    static let sessionRowGap = Design.px(10)   // the two lines of one session
+    static let cardWidth = NotchTokens.cardWidth
+    static let cardCorner = NotchTokens.cardCorner
+    static let cardPadding = NotchTokens.cardPadding
+    static let tailLength = NotchTokens.tailLength
+    static let tailHeight = NotchTokens.tailHeight
+    static let tailGap = NotchTokens.tailGap    // tail tip -> notch body edge
+    static let barHeight = NotchTokens.barHeight
+    static let headerGap = NotchTokens.headerGap    // glyph -> title
+    static let headerToBlock = NotchTokens.headerToBlock
+    static let labelToBar = NotchTokens.labelToBar
+    static let barToUsed = NotchTokens.barToUsed
+    static let blockSpacing = NotchTokens.blockSpacing
+    static let sessionRowGap = NotchTokens.sessionRowGap   // the two lines of one session
     /// The spinner beside a session's status. Sized against the body text's cap
     /// (18px) rather than picked by eye, so it reads as part of the word rather
     /// than a bullet pinned near it.
-    static let statusDot       = Design.px(17)
-    static let statusDotStroke = Design.px(3.4)
-    static let statusDotGap    = Design.px(11)
-    static let hairline      = Design.px(2.5)  // rule above the session list
+    static let statusDot = NotchTokens.statusDot
+    static let statusDotStroke = NotchTokens.statusDotStroke
+    static let statusDotGap = NotchTokens.statusDotGap
+    static let hairline = NotchTokens.hairline  // rule above the session list
 
     // Codex account activity
-    static let codexUsageTop   = Design.px(20)
-    static let codexMetricTop  = Design.px(14)
-    static let codexMetricRowGap = Design.px(8)
-    static let codexMetricRowHeight = Design.px(40)
+    static let codexUsageTop = NotchTokens.codexUsageTop
+    static let codexMetricTop = NotchTokens.codexMetricTop
+    static let codexMetricRowGap = NotchTokens.codexMetricRowGap
+    static let codexMetricRowHeight = NotchTokens.codexMetricRowHeight
     static let codexMetricHeight = 5 * codexMetricRowHeight + 4 * codexMetricRowGap
-    static let codexMetricBottom = Design.px(14)
-    static let codexUsageRowGap = Design.px(12)
-    static let codexChartTop   = Design.px(15)
-    static let codexChartHeight = Design.px(115)
+    static let codexMetricBottom = NotchTokens.codexMetricBottom
+    static let codexUsageRowGap = NotchTokens.codexUsageRowGap
+    static let codexChartTop = NotchTokens.codexChartTop
+    static let codexChartHeight = NotchTokens.codexChartHeight
 
     /// The percent label's line box. Fixed rather than intrinsic so the panel
     /// geometry can be worked out in AppKit before SwiftUI lays anything out.
@@ -174,7 +174,7 @@ enum NotchLayout {
     ///
     /// Measured, because a status message is the one piece of card text whose
     /// length is not known here. The budget assumed a single line, and the
-    /// longest of them — "Codenotch was refused access to …'s saved login.
+    /// longest of them — "Notch was refused access to …'s saved login.
     /// Click this ring to ask again, and choose Always Allow." — takes three:
     /// 33pt against 12pt reserved. The card came up 21pt short and clipped the
     /// two lines that said what to do about it, on the one ring a user looks at
@@ -378,7 +378,7 @@ enum NotchLayout {
             : max(endSlack * notchScale, cardWidth / 2 + cardCorner)
     }
 
-    private static let endSlack = Design.px(190)
+    private static let endSlack = NotchTokens.endSlack
 
     /// The busiest provider that occurs — Claude, with four limit windows.
     /// The tallest card is sized for it, since the panel is sized once for the

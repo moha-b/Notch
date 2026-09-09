@@ -1,7 +1,7 @@
 import XCTest
-@testable import Codenotch
+@testable import Notch
 
-/// The rename from UsageNotch to Codenotch moved every setting into a new,
+/// The rename from UsageNotch to Notch moved every setting into a new,
 /// empty defaults domain — the migration is the difference between a rename
 /// and what looks like a reset, so it is pinned here. (Round-trip and
 /// first-launch basics live with the other PreferencesTests.)

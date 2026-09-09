@@ -1,0 +1,87 @@
+name: Native candidates
+on:
+  push:
+    branches: [main, 'feat/notch-*']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: candidates-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.paths.outputs.app }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node scripts/generate-design.mjs --check
+      - id: paths
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -z "$BASE_SHA" ] || ! git cat-file -e "$BASE_SHA"; then
+            echo 'app=true' >> "$GITHUB_OUTPUT"
+          elif git diff --name-only "$BASE_SHA" HEAD | grep -Eq '^(apps/|shared/|scripts/|\.github/)'; then
+            echo 'app=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'app=false' >> "$GITHUB_OUTPUT"
+          fi
+  windows:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: windows-2022
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: apps/windows
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/windows -> target
+      - run: npm install --global @tauri-apps/cli@2.11.4
+      - run: ./scripts/build-installer.ps1
+      - run: cargo test --locked --workspace
+      - run: ./scripts/test-installer.ps1
+        timeout-minutes: 5
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Notch-Preview-windows-x64-${{ github.sha }}
+          path: apps/windows/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+  macos:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: macos-15
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: apps/macos
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: apps/macos/build/DerivedData/SourcePackages
+          key: macos-packages-${{ hashFiles('apps/macos/project.yml') }}
+          restore-keys: macos-packages-
+      - run: brew install xcodegen
+      - run: make test-ci
+      - run: make candidate
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Notch-Preview-macos-arm64-${{ github.sha }}
+          path: |
+            apps/macos/build/Notch-Preview.dmg
+            apps/macos/build/tests.xcresult

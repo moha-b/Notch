@@ -1,0 +1,12 @@
+[package]
+name = "notch-hook"
+version = "0.0.0"
+edition = "2021"
+description = "Notch hook launcher: report Claude Code hook events, auto-start main app"
+license = "MIT"
+repository = "https://github.com/moha-b/Notch"
+
+[dependencies]
+
+[features]
+stable-channel = []

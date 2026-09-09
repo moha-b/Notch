@@ -1,6 +1,6 @@
 import XCTest
 import Sparkle
-@testable import Codenotch
+@testable import Notch
 
 /// Fixtures are the real thing: the keychain payload's shape and the actual
 /// `loadCodeAssist` response from a signed-in install.
@@ -879,7 +879,7 @@ final class StatusMenuTests: XCTestCase {
         XCTAssertTrue(titles[1].contains("29% Used · 71% left"), titles[1])
         XCTAssertTrue(titles.contains("Refresh all"))
         XCTAssertTrue(titles.contains("Settings…"))
-        XCTAssertTrue(titles.contains("Quit Codenotch"))
+        XCTAssertTrue(titles.contains("Quit Notch"))
         // The header re-reads its own provider.
         XCTAssertEqual(menu.items[0].representedObject as? String, "codex")
     }

@@ -36,7 +36,7 @@ enum NotchVisibility: String, CaseIterable, Identifiable {
             // live in the menu bar menu instead, so Hide plus App icon "Menu
             // bar" is a working setup rather than a one-way door.
             return "Nothing on screen. The readings stay in the menu bar menu "
-                 + "when App icon is Menu bar. Otherwise, open Codenotch again "
+                 + "when App icon is Menu bar. Otherwise, open Notch again "
                  + "from Applications to bring these settings back."
         }
     }

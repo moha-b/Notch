@@ -85,7 +85,7 @@ private struct VisualEffect: NSViewRepresentable {
     }
 
     private func apply(to view: NSVisualEffectView, context: Context) {
-        if context.environment.codenotchReduceTransparency {
+        if context.environment.notchReduceTransparency {
             view.material = .windowBackground
             view.blendingMode = .withinWindow
         } else {
@@ -165,7 +165,7 @@ struct SettingsView: View {
     /// effect the next time the edge changed.
     let resetPosition: () -> Void
     @ObservedObject var updater: Updater
-    @Environment(\.codenotchReduceTransparency) private var reduceTransparency
+    @Environment(\.notchReduceTransparency) private var reduceTransparency
 
     var body: some View {
         // A plain HStack rather than `NavigationSplitView`: the sidebar here
@@ -186,7 +186,7 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .tint(preferences.accentColor.color)
-        .environment(\.codenotchAccentColor, preferences.accentColor.color)
+        .environment(\.notchAccentColor, preferences.accentColor.color)
         // Fills the window rather than claiming a fixed size. Under
         // `fullSizeContentView` the content view is the whole frame — title
         // bar included — so a view sized to `SettingsView.height` left the
@@ -419,7 +419,7 @@ struct SettingsView: View {
                 }
                 // Beside the switches it explains, not stranded at the end of
                 // the page.
-                Text("Codenotch never signs in — each reading is borrowed from the "
+                Text("Notch never signs in — each reading is borrowed from the "
                      + "tool that already holds the account. Signing out here stops "
                      + "the credential being read and forgets the numbers, but leaves "
                      + "you signed in to that tool. macOS asks once per tool the "
@@ -461,9 +461,9 @@ struct SettingsView: View {
         .animation(.snappy(duration: 0.25), value: preferences.disconnectedProviders)
     }
 
-    // One pane, because they are one question: what Codenotch looks like and
+    // One pane, because they are one question: what Notch looks like and
     // where it turns up. Split across several it read as unrelated settings,
-    // and "Where Codenotch appears" was a header long enough to look like a
+    // and "Where Notch appears" was a header long enough to look like a
     // warning.
     private var appearancePane: some View {
         Form {
@@ -629,7 +629,7 @@ struct SettingsView: View {
                 SoundRow(label: "Waiting on you", name: $preferences.sessionBlockedSoundName,
                          pickerEnabled: preferences.sessionEndSound)
 
-                Text("Codenotch already knows the moment an agent stops working "
+                Text("Notch already knows the moment an agent stops working "
                      + "or stops to ask you something. Clicking the notch while "
                      + "it is open brings that session's app to the front — the "
                      + "app, not the tab: only some terminals let anything "
@@ -665,7 +665,7 @@ struct SettingsView: View {
         .formStyle(.grouped)
     }
 
-    // Startup and updates together: both are about what Codenotch does
+    // Startup and updates together: both are about what Notch does
     // without being asked, and one switch under its own header looked
     // like an oversight rather than a section.
     private var generalPane: some View {
@@ -673,7 +673,7 @@ struct SettingsView: View {
             // No title on the group: the pane's own header above already
             // says "General", and repeating it here would say it twice.
             Section {
-                Toggle("Open Codenotch at login", isOn: $preferences.launchAtLogin)
+                Toggle("Open Notch at login", isOn: $preferences.launchAtLogin)
                 if let problem = preferences.launchAtLoginProblem {
                     Text(problem)
                         .font(.caption)
@@ -681,20 +681,14 @@ struct SettingsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                Toggle("Install updates automatically", isOn: Binding(
+                Toggle("Check for updates automatically", isOn: Binding(
                     get: { updater.automatic },
                     set: { updater.automatic = $0 }
                 ))
 
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    // Disclosed rather than merely silent. An app that updates
-                    // itself unprompted *and* reads other apps' credentials is
-                    // exactly the shape security tooling flags; saying so, with
-                    // a way to switch it off, is the difference between a
-                    // background updater and something that looks like it is
-                    // hiding.
                     Text("Version \(updater.currentVersion). Updates install in the "
-                         + "background and apply next time Codenotch starts.")
+                         + "background and apply next time Notch starts.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -754,7 +748,7 @@ struct SettingsView: View {
             if let display = displays.first(where: { $0.id == id }) {
                 return "Pinned to \(display.name)."
             }
-            return "That display is disconnected. Codenotch follows the active window until it returns."
+            return "That display is disconnected. Notch follows the active window until it returns."
         }
     }
 
@@ -816,7 +810,7 @@ struct SettingsView: View {
     /// this, sees four blank rings and concludes it is broken — and the
     /// distinction that catches them out is Claude *Code*, not the Claude app.
     static let setupCopy =
-        "Codenotch reads usage from tools already signed in on this Mac — it "
+        "Notch reads usage from tools already signed in on this Mac — it "
         + "never asks for your password. Install and sign in to any of Claude "
         + "Code (the terminal tool, not the Claude app), Cursor (the editor or "
         + "cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, Command "
@@ -958,7 +952,7 @@ private struct AccentColorSwatch: View {
     let isSelected: Bool
     let select: () -> Void
 
-    @Environment(\.codenotchReduceTransparency) private var reduceTransparency
+    @Environment(\.notchReduceTransparency) private var reduceTransparency
 
     var body: some View {
         Button(action: select) {
@@ -990,7 +984,7 @@ private struct AccentColorSwatch: View {
     }
 }
 
-/// One provider: whether Codenotch reads it, whose account that is, and where
+/// One provider: whether Notch reads it, whose account that is, and where
 /// to go if there is nothing to read.
 /// One sound choice, with a preview button.
 private struct SoundRow: View {
@@ -1051,7 +1045,7 @@ private struct AccountRow: View {
     /// now belongs. The row itself cannot: it can see only itself.
     let didConnect: () -> Void
 
-    @Environment(\.codenotchReduceTransparency) private var reduceTransparency
+    @Environment(\.notchReduceTransparency) private var reduceTransparency
 
     /// The handle only appears under the pointer, so a row at rest stays as
     /// quiet as it was before there was anything to drag.
@@ -1323,7 +1317,7 @@ private struct AccountRow: View {
             // Not a sign-in problem, so do not send them off to sign in. The
             // credential is right there and macOS is the one saying no — the
             // remedy is the button on this same row.
-            Text("macOS is not letting Codenotch read \(provider.name)'s saved "
+            Text("macOS is not letting Notch read \(provider.name)'s saved "
                  + "login. Choose Allow access… above, then Always Allow.")
                 .foregroundStyle(.orange)
                 .fixedSize(horizontal: false, vertical: true)

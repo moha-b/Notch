@@ -234,7 +234,7 @@ final class Preferences: ObservableObject {
     /// at all.
     let isFirstLaunch: Bool
 
-    /// The bundle identifier before the app was renamed to Codenotch.
+    /// The bundle identifier before the app was renamed to Notch.
     ///
     /// A bundle id is the name of the defaults domain, so renaming the app
     /// silently moved every setting to a new, empty one — connection choices,
@@ -292,7 +292,7 @@ final class Preferences: ObservableObject {
         // would put notches where none were expected.
         self.notchScope = defaults.string(forKey: Keys.scope)
             .flatMap(NotchScreenScope.init(rawValue:)) ?? .mainDisplay
-        // Follow the Mac unless the user explicitly chooses a Codenotch colour.
+        // Follow the Mac unless the user explicitly chooses a Notch colour.
         self.accentColor = defaults.string(forKey: Keys.accentColor)
             .flatMap(AccentColorChoice.init(rawValue:)) ?? .system
         // Absent means nothing has been shown yet, which is true of a fresh
@@ -364,7 +364,7 @@ final class Preferences: ObservableObject {
     /// update, and wiping data on every Sparkle update would be catastrophic.
     /// It has to be something the user asks for.
     static func eraseAllData() {
-        let bundleID = Bundle.main.bundleIdentifier ?? "com.vinz.codenotch"
+        let bundleID = Bundle.main.bundleIdentifier ?? "io.github.moha-b.notch"
         UserDefaults.standard.removePersistentDomain(forName: bundleID)
         UserDefaults.standard.synchronize()
 
@@ -398,7 +398,7 @@ final class Preferences: ObservableObject {
             // Commonly refused for an app running from a build directory rather
             // than /Applications, which is worth saying plainly.
             Log.usage.error("launch at login failed: \(error.localizedDescription, privacy: .public)")
-            launchAtLoginProblem = "macOS refused this — try moving Codenotch to /Applications."
+            launchAtLoginProblem = "macOS refused this — try moving Notch to /Applications."
             launchAtLogin = Self.isRegisteredForLogin
         }
     }

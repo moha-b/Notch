@@ -2,7 +2,7 @@ import Foundation
 
 /// Whose readings these are.
 ///
-/// Worth showing plainly, because Codenotch never signs in — it borrows a
+/// Worth showing plainly, because Notch never signs in — it borrows a
 /// credential the owning tool already holds, and there is nothing stopping that
 /// credential belonging to a different account than the one you are sitting in
 /// front of. It happened during development: a browser sign-in created a second,
@@ -28,12 +28,12 @@ struct ProviderAccount: Equatable {
 
 /// Where to go when a provider has no usable credential.
 ///
-/// Codenotch cannot sign anyone in — it reads a credential the owning tool
+/// Notch cannot sign anyone in — it reads a credential the owning tool
 /// holds — so the most it can honestly do is open that tool, or say what to do
 /// when there is nothing to open.
 enum SignInRoute: Equatable {
     /// The provider owns the session and can present its own sign-in window.
-    /// The only case where Codenotch genuinely signs anyone in or out.
+    /// The only case where Notch genuinely signs anyone in or out.
     case modal(name: String)
     /// Launch the app that owns the credential.
     case openApp(bundleID: String, name: String)
@@ -74,7 +74,7 @@ enum SignInRoute: Equatable {
     var signOutCaveat: String {
         switch self {
         case .modal(let name):
-            return "Signs out of \(name) — the session belongs to Codenotch."
+            return "Signs out of \(name) — the session belongs to Notch."
         case .openApp(_, let name):
             return "You stay signed in to \(name) — end that session in \(name) itself."
         case .guidance:

@@ -1,5 +1,5 @@
 import XCTest
-@testable import Codenotch
+@testable import Notch
 
 final class OllamaLocalUsageTests: XCTestCase {
     private let activeModelJSON = """

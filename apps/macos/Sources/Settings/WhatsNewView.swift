@@ -35,7 +35,7 @@ struct WhatsNewView: View {
                     .frame(width: 60, height: 60)
                     .padding(.bottom, 8)
             }
-            Text("What's new in Codenotch")
+            Text("What's new in Notch")
                 .font(.system(size: 19, weight: .semibold))
                 .multilineTextAlignment(.center)
             Text("Version \(note.version)")
@@ -68,7 +68,7 @@ struct WhatsNewView: View {
 /// test can actually look at.
 struct WhatsNewChanges: View {
     let changes: [ReleaseNote.Change]
-    @Environment(\.codenotchAccentColor) private var accentColor
+    @Environment(\.notchAccentColor) private var accentColor
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {

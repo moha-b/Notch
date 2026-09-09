@@ -1,0 +1,11 @@
+{
+  "name": "Notch",
+  "repository": "moha-b/Notch",
+  "identifier": "io.github.moha-b.notch",
+  "initialVersion": "1.0.0",
+  "macosMinimum": "15.0",
+  "targets": ["macos-arm64", "windows-x64"],
+  "macosSource": "6f0eb970201d895627e9c8ed9792d7befa27f809",
+  "providers": ["claude", "cursor", "codex", "antigravity", "glm", "grok", "opencode", "commandcode", "copilot", "ollama-local", "ollama", "gemini-api"],
+  "updateBase": "https://moha-b.github.io/Notch/updates"
+}

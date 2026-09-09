@@ -1,5 +1,5 @@
 import XCTest
-@testable import Codenotch
+@testable import Notch
 
 /// The token path of `ClaudeOAuthProvider`.
 ///
