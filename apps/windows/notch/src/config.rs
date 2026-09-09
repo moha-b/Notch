@@ -2,7 +2,23 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Config {
+    pub disabled_providers: Vec<String>,
+    pub provider_order: Vec<String>,
+    pub muted_providers: Vec<String>,
+    pub edge: String,
+    pub display: Option<String>,
+    pub follow_focus: bool,
+    pub scale: f64,
+    pub accent: String,
+    pub reset_format: String,
+    pub show_usage_pace: bool,
+    pub announce_completion: bool,
+    pub sounds: bool,
+    pub peek_seconds: u32,
+    pub automatic_checks: bool,
+    pub onboarding_complete: bool,
     #[serde(default = "default_port")]
     pub port: u16,
     /// "auto" | "zh" | "en" | "ja" | "ko"
@@ -37,6 +53,13 @@ fn default_lang() -> String {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            disabled_providers: Vec::new(),
+            provider_order: crate::providers::FAMILIES.iter().map(|id| (*id).into()).collect(),
+            muted_providers: Vec::new(),
+            edge: "right".into(), display: None, follow_focus: false,
+            scale: 1.0, accent: "#00FF88".into(), reset_format: "relative".into(),
+            show_usage_pace: false, announce_completion: true, sounds: false,
+            peek_seconds: 5, automatic_checks: true, onboarding_complete: false,
             port: default_port(),
             lang: default_lang(),
             bar_x: None,
@@ -55,20 +78,34 @@ pub fn config_path() -> PathBuf {
         .join("config.json")
 }
 
-pub fn load() -> Config {
+pub fn load() -> Result<Config, String> {
     let path = config_path();
-    std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default()
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Config::default()),
+        Err(error) => return Err(format!("Could not read Notch settings: {error}")),
+    };
+    match serde_json::from_slice(&bytes) {
+        Ok(settings) => Ok(settings),
+        Err(_) => {
+            let backup = path.with_extension(format!("invalid-{}", crate::providers::now_ms()));
+            std::fs::copy(&path, backup).map_err(|error| format!("Cannot preserve damaged settings: {error}"))?;
+            Ok(Config::default())
+        }
+    }
 }
 
 pub fn save(cfg: &Config) {
+    if let Err(error) = try_save(cfg) { eprintln!("Could not save Notch settings: {error}"); }
+}
+
+pub fn try_save(cfg: &Config) -> Result<(), String> {
     let path = config_path();
     if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
+        std::fs::create_dir_all(dir).map_err(|error| error.to_string())?;
     }
-    if let Ok(txt) = serde_json::to_string_pretty(cfg) {
-        let _ = std::fs::write(path, txt);
-    }
+    let bytes = serde_json::to_vec_pretty(cfg).map_err(|error| error.to_string())?;
+    let pending = path.with_extension("pending");
+    std::fs::write(&pending, bytes).map_err(|error| error.to_string())?;
+    std::fs::rename(pending, path).map_err(|error| error.to_string())
 }

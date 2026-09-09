@@ -63,7 +63,7 @@ jobs:
   macos:
     needs: changes
     if: needs.changes.outputs.app == 'true'
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 45
     defaults:
       run:

@@ -19,6 +19,9 @@ mod glyphs;
 mod activity;
 mod diag;
 mod watcher;
+mod providers;
+mod settings;
+mod placement;
 
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
@@ -30,6 +33,7 @@ pub const BUILD: &str = "r31";
 pub const NOTCH_H: f64 = 460.0; // 300 clipped the card once it held three window blocks plus the session list
 
 pub struct AppState {
+    pub providers: Mutex<std::collections::BTreeMap<String, usage::UsageSnapshot>>,
     pub store: Mutex<state::Store>,
     pub cfg: Mutex<config::Config>,
     pub usage: Mutex<usage::UsageSnapshot>,
@@ -61,58 +65,7 @@ pub fn broadcast(app: &AppHandle) {
     let _ = app.emit("state", &snap);
 }
 
-/// Pins the notch to the right edge of the primary monitor; the other edges are a later milestone.
-pub fn place_notch(app: &AppHandle) {
-    let Some(w) = app.get_webview_window("notch") else {
-        return;
-    };
-    let scale = w.scale_factor().unwrap_or(1.0);
-    if let Ok(Some(mon)) = w.primary_monitor() {
-        // Two monitors at different scales (150 % and 200 % in practice): the physical size can
-        // end up converted with the *other* monitor's scale factor depending on where the window
-        // is created and then moved, leaving the WebView ~256 logical px wide instead of 340.
-        // So the physical size is pinned straight from mon.scale_factor() before placing the
-        // window; if it still reports a different scale afterwards, it is pinned once more.
-        let ms = mon.scale_factor();
-        let target = tauri::PhysicalSize::new((NOTCH_W * ms).round() as u32, (NOTCH_H * ms).round() as u32);
-        let _ = w.set_size(target);
-        // Position from the window's measured physical size — deriving it from the scale factor
-        // pushed the window past the right edge at 125 % / 150 % (the ring's right side was clipped).
-        let (ww, wh) = w
-            .outer_size()
-            .map(|s| (s.width as i32, s.height as i32))
-            .unwrap_or(((NOTCH_W * scale) as i32, (NOTCH_H * scale) as i32));
-        let x = mon.position().x + mon.size().width as i32 - ww;
-        // Vertical position comes from the configured ratio (the pill can be dragged; it persists), clamped to the monitor
-        let ratio = {
-            let st = app.state::<AppState>();
-            let c = st.cfg.lock().unwrap();
-            c.notch_y.clamp(0.0, 1.0)
-        };
-        let mh = mon.size().height as i32;
-        let y = (mon.position().y as f64 + mh as f64 * ratio - wh as f64 / 2.0).round() as i32;
-        let y = y.clamp(mon.position().y, mon.position().y + (mh - wh).max(0));
-        let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
-        if w.outer_size().map(|s| s.width != target.width).unwrap_or(false) {
-            let _ = w.set_size(target);
-            let x = mon.position().x + mon.size().width as i32 - target.width as i32;
-            let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
-        }
-        // Placement log line: the first thing to check when the notch is not visible
-        let log = config::config_path().with_file_name("run.log");
-        let _ = std::fs::write(
-            log,
-            format!(
-                "notch placed build={BUILD}: pos=({x},{y}) size=({ww}x{wh}) inner={:?} win_scale={scale} mon_scale={ms} monitor=({},{} {}x{})\n",
-                w.inner_size().map(|s| (s.width, s.height)).unwrap_or((0, 0)),
-                mon.position().x,
-                mon.position().y,
-                mon.size().width,
-                mon.size().height
-            ),
-        );
-    }
-}
+pub fn place_notch(app: &AppHandle) { placement::place(app); }
 
 /// Older entry point name still used by tray.rs
 pub fn reset_bar(app: &AppHandle) {
@@ -255,8 +208,7 @@ fn get_usage(state: tauri::State<AppState>) -> usage::UsageSnapshot {
 fn refresh_usage(app: AppHandle) {
     {
         let st = app.state::<AppState>();
-        let mut u = st.usage.lock().unwrap();
-        u.backoff_until = 0;
+        drop(st);
     }
     usage::request_refresh();
     codex::request_refresh();
@@ -317,7 +269,14 @@ fn open_provider_page(provider: String) {
     let url = match provider.as_str() {
         "codex" => "https://chatgpt.com/#settings/Account",
         "cursor" => "https://cursor.com/dashboard",
-        "gemini" => "https://antigravity.google",
+        "gemini" | "antigravity" => "https://antigravity.google",
+        "glm" => "https://z.ai/manage-apikey/apikey-list",
+        "grok" => "https://grok.com",
+        "opencode" => "https://opencode.ai",
+        "commandcode" => "https://commandcode.ai",
+        "copilot" => "https://github.com/settings/copilot",
+        "ollama" => "https://ollama.com/settings",
+        "ollama-local" | "gemini-api" => return,
         _ => "https://claude.ai/settings/usage",
     };
     let mut cmd = std::process::Command::new("cmd");
@@ -594,7 +553,10 @@ fn main() {
         }
     }
 
-    let cfg = config::load();
+    let cfg = match config::load() {
+        Ok(settings) => settings,
+        Err(error) => { report(Err(error)); return; }
+    };
     let port = cfg.port;
 
     tauri::Builder::default()
@@ -605,6 +567,7 @@ fn main() {
             let _ = app.emit("notice", format!("Notch is already running ({BUILD}) — quit it from the tray before starting a new build"));
         }))
         .manage(AppState {
+            providers: Mutex::new(providers::load_cache()),
             store: Mutex::new(Default::default()),
             cfg: Mutex::new(cfg),
             usage: Mutex::new(usage::load_persisted()),
@@ -615,6 +578,8 @@ fn main() {
             activity: Mutex::new(Vec::new()),
         })
         .invoke_handler(tauri::generate_handler![
+            settings::get_settings, settings::save_settings, settings::get_providers,
+            settings::open_settings, settings::get_displays, settings::save_ollama_key, settings::delete_ollama_key,
             get_state,
             get_usage,
             get_codex,
@@ -636,14 +601,19 @@ fn main() {
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
+            if !handle.state::<AppState>().cfg.lock().unwrap().onboarding_complete {
+                settings::open_settings(handle.clone()).map_err(std::io::Error::other)?;
+            }
             place_notch(&handle);
             noactivate(&handle);
+            placement::watch(handle.clone());
             if let Some(w) = handle.get_webview_window("notch") {
                 let _ = w.show();
             }
             tray::setup(&handle)?;
             server::start(handle.clone(), port);
             watcher::start(handle.clone());
+            providers::start(handle.clone());
             usage::start(handle.clone());
             codex::start(handle.clone());
             cursor::start(handle.clone());

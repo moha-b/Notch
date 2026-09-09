@@ -485,6 +485,10 @@ pub fn start(app: AppHandle) {
             broadcast(&app, UsageSnapshot { status: "absent".into(), ..Default::default() });
             // Codex is not installed: look again every 10 minutes
             loop {
+            if !crate::providers::enabled(&app, "codex") {
+                std::thread::sleep(Duration::from_secs(1));
+                continue;
+            }
                 for _ in 0..600 {
                     if REFRESH.swap(false, std::sync::atomic::Ordering::Relaxed) {
                         break;
@@ -497,6 +501,10 @@ pub fn start(app: AppHandle) {
             }
         }
         loop {
+            if !crate::providers::enabled(&app, "codex") {
+                std::thread::sleep(Duration::from_secs(1));
+                continue;
+            }
             let snap = read_once();
             let hold = snap.backoff_until.saturating_sub(now_ms()) / 1000;
             broadcast(&app, snap);

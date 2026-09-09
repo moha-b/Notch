@@ -1,0 +1,9 @@
+[
+  {"provider":"glm","response":{"code":200,"success":true,"data":{"limits":[{"type":"CREDIT_LIMIT","unit":3,"number":5,"percentage":37,"nextResetTime":1800000000000}]}},"used":0.37,"reset":1800000000000},
+  {"provider":"grok","response":{"config":{"creditUsagePercent":25,"currentPeriod":{"type":"WEEKLY","end":"2027-01-15T08:00:00Z"}}},"used":0.25,"reset":1800000000000},
+  {"provider":"opencode","response":{"usage":{"rolling":{"percent":61,"resetsAt":"2027-01-15T08:00:00Z"}}},"used":0.61,"reset":1800000000000},
+  {"provider":"copilot","response":{"quota_snapshots":{"premium_interactions":{"entitlement":300,"remaining":120,"unlimited":false}},"quota_reset_date":"2027-01-15T08:00:00Z"},"used":0.6,"reset":1800000000000},
+  {"provider":"ollama","response":{"limits":{"monthly":{"usage":0.152}},"activity":{"period":{"ending_at":"2027-01-15T08:00:00Z"}}},"used":0.152,"reset":null},
+  {"provider":"ollama-local","response":{"models":[{"name":"llama","size":1000,"size_vram":800}]},"count":800},
+  {"provider":"commandcode","response":{"credits":{"monthlyCredits":75},"windowLimits":{}},"summary":{"totalCost":25},"period":{"currentPeriodEnd":1800000000},"used":0.25,"reset":1800000000000}
+]

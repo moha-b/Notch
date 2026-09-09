@@ -2,6 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
+<link rel="stylesheet" href="tokens.css">
 <style>
   /* Visual reference: upstream docs/specs/2026-08-28-usage-notch-design.md, reproduced for Windows */
   *{box-sizing:border-box} /* content-box padding once pushed the card past the window's left edge */
@@ -97,11 +98,13 @@
   }
   #notice.show{display:block}
 </style>
+<link rel="stylesheet" href="notch-product.css">
 </head>
 <body>
 <div id="root">
   <div id="card"></div>
   <div id="pill"></div><!-- one .cell per provider, stacked vertically (upstream: data-driven, the same layout for 1–5 cells) -->
+  <button id="settings-button" title="Settings" aria-label="Settings">⚙</button>
   <div id="notice"></div>
 </div>
 <script>
@@ -111,12 +114,15 @@ const listen = window.__TAURI__.event.listen;
 /* Colour ramp (upstream palette values) */
 const AMPLE='#00FF88', WATCH='#F2FF00', CRIT='#FF3F00';
 const TRACK='#303030', AMBER='#FFBF00', RUNGREEN='#28E07B';
-const tone=f=> f>=0.8?CRIT : f>=0.5?WATCH : AMPLE;
+const tone=f=> f>=0.8?CRIT : f>=0.5?WATCH : (settings.accent||AMPLE);
 
 let usage={status:'',windows:[],fetched_at:0,note:''};
 let codexSnap={status:'absent',windows:[],fetched_at:0,note:''};
 let cursorSnap={status:'absent',windows:[],fetched_at:0,note:''};
 let agSnap={status:'absent',windows:[],fetched_at:0,note:''};
+const providerNames={"claude":"Claude","cursor":"Cursor","codex":"Codex","antigravity":"Antigravity","glm":"GLM","grok":"Grok","opencode":"OpenCode","commandcode":"Command Code","copilot":"GitHub Copilot","ollama-local":"Ollama Local","ollama":"Ollama Cloud","gemini-api":"Gemini API"};
+let extraSnapshots={};
+let settings={provider_order:Object.keys(providerNames),disabled_providers:[],edge:'right',scale:1};
 let glyphs={}; // id → {kind:'mark'|'appicon', url}
 let activity=[]; // working state of the non-Claude providers: {provider,state:'busy'|'waiting',name,detail,since}
 // "Is it working?" per provider: Claude from the four-state engine, the others from the activity probe. Returns running | attention | idle
@@ -128,7 +134,7 @@ function workState(id){
     if(activity.some(a=>a.provider==='claude'&&a.state==='busy')) return 'running';
     return 'idle';
   }
-  const acts=activity.filter(a=>a.provider===id);
+  const acts=activity.filter(a=>a.provider===(id==='antigravity'?'gemini':id));
   if(acts.some(a=>a.state==='waiting')) return 'attention';
   if(acts.some(a=>a.state==='busy')) return 'running';
   return 'idle';
@@ -141,11 +147,11 @@ function glyphHtml(p,small){
 }
 // Provider table (order = top to bottom in the pill). `glyph` is the fallback letter used when no mark is available
 function providers(){
-  const list=[{id:'claude',name:'Claude',glyph:'C',snap:usage}];
-  if(codexSnap.status!=='absent') list.push({id:'codex',name:'Codex',glyph:'Cx',snap:codexSnap});
-  if(cursorSnap.status!=='absent') list.push({id:'cursor',name:'Cursor',glyph:'Cu',snap:cursorSnap});
-  if(agSnap.status!=='absent') list.push({id:'gemini',name:'Antigravity',glyph:'Ag',snap:agSnap});
-  return list;
+  const snapshots={...extraSnapshots,claude:usage,codex:codexSnap,cursor:cursorSnap,antigravity:agSnap};
+  return settings.provider_order.filter(id=>!settings.disabled_providers.includes(id)).map(id=>({
+    id,name:providerNames[id],glyph:providerNames[id].slice(0,2),
+    snap:snapshots[id]||{status:'',windows:[],fetched_at:0,note:'Waiting for first reading…'}
+  }));
 }
 function headlineOf(snap){
   if(!snap.windows.length) return null;
@@ -196,7 +202,7 @@ function renderRing(){
     }
     svg.innerHTML=inner;
     if(p.snap.status==='needsAuth'||p.snap.status==='none') pct.textContent='—';
-    else if(h && h.count!=null) pct.textContent='~'+h.count;
+    else if(h && h.count!=null) pct.textContent=(h.derived?'~':'')+Number(h.count).toLocaleString();
     else if(h) pct.textContent=(h.derived?'~':'')+Math.round(h.used*100)+'%';
     else pct.textContent='…';
     glyph.classList.toggle('dim', !!(h && h.used>=1));
@@ -205,6 +211,7 @@ function renderRing(){
 }
 
 function resetCopy(ms){
+  if(ms && settings.reset_format==='absolute') return new Date(ms).toLocaleString();
   if(!ms) return '';
   const diff=ms-Date.now();
   if(diff<=0) return 'Resetting…';
@@ -226,29 +233,30 @@ let hoverId='claude';
 function renderCard(){
   const c=document.getElementById('card');
   const p=providers().find(x=>x.id===hoverId)||providers()[0];
+  if(!p) { c.classList.remove('show'); return; }
   const snap=p.snap;
   const headIcon=glyphHtml(p,true);
   let html=`<div class="c-head">${headIcon}<span class="c-title">${p.name} Usage</span></div>`;
   if(staleOf(snap)&&snap.fetched_at) html+=`<div class="c-sub">Updated ${ago(snap.fetched_at)}</div>`;
   if(snap.status==='needsAuth'){
     const who={claude:'Sign in to Claude Code to see usage.',cursor:'Sign in to Cursor to see usage.',codex:'Sign in to Codex to see usage.',gemini:'Sign in to Antigravity to see usage.'}[p.id]||'';
-    html+=`<div class="c-note">${who}<br>${snap.note||''}</div>`;
+    html+=`<div class="c-note">${who}<br>${esc(snap.note||'')}</div>`;
   }else if(!snap.windows.length){
-    html+=`<div class="c-note">${snap.note||'Waiting for first reading…'}</div>`;
+    html+=`<div class="c-note">${esc(snap.note||'Waiting for first reading…')}</div>`;
   }else{
     for(const w of snap.windows){
       if(w.count!=null){
-        html+=`<div class="win"><div class="w-row"><span class="w-label">${w.label}</span></div>
-          <div class="w-used">${w.count>0?`~${w.count} request${w.count===1?'':'s'} today`:'no requests today'}</div></div>`;
+        html+=`<div class="win"><div class="w-row"><span class="w-label">${esc(w.label)}</span></div>
+          <div class="w-used">${w.derived?'~':''}${Number(w.count).toLocaleString()}</div></div>`;
         continue;
       }
       html+=`<div class="win">
-        <div class="w-row"><span class="w-label">${w.label}</span><span class="w-reset">${resetCopy(w.resets_at)}</span></div>
+        <div class="w-row"><span class="w-label">${esc(w.label)}</span><span class="w-reset">${resetCopy(w.resets_at)}</span></div>
         <div class="w-track"><div class="w-fill" style="width:${(Math.min(w.used,1)*100).toFixed(0)}%;background:${tone(w.used)}"></div></div>
         <div class="w-used">${w.derived?'~':''}${Math.round(w.used*100)}% Used</div>
       </div>`;
     }
-    if(snap.note) html+=`<div class="c-note">${snap.note}</div>`;
+    if(snap.note) html+=`<div class="c-note">${esc(snap.note)}</div>`;
   }
   if(p.id==='claude'){ // live sessions (a full list with jump-to-session is a follow-up)
     const act=stateSnap.sessions.filter(s=>s.state!=='idle');
@@ -398,6 +406,19 @@ invoke('get_glyphs').then(g=>{glyphs=g||glyphs;renderRing();}).catch(()=>{});
 invoke('get_codex').then(u=>{codexSnap=u||codexSnap;renderRing();}).catch(()=>{});
 invoke('get_usage').then(u=>{usage=u||usage;renderRing();}).catch(e=>notice('get_usage failed: '+e));
 invoke('get_state').then(s=>{stateSnap=s||stateSnap;renderRing();}).catch(()=>{});
+function applySettings(next){
+  settings=next; document.body.dataset.edge=next.edge;
+  document.documentElement.style.setProperty('--notch-scale',next.scale);
+  const root=document.querySelector('#root');
+  root.style.zoom=String(next.scale); root.style.width=(100/next.scale)+'%'; root.style.height=(100/next.scale)+'%';
+  document.documentElement.style.setProperty('--notch-offset',(next.notch_y*100)+'%');
+  renderRing(); if(card.classList.contains('show'))renderCard();
+}
+document.querySelector('#settings-button').onclick=()=>invoke('open_settings').catch(error=>notice(String(error)));
+listen('providers',e=>{extraSnapshots=e.payload;renderRing();if(card.classList.contains('show'))renderCard();}).catch(error=>notice(String(error)));
+listen('settings',e=>applySettings(e.payload)).catch(error=>notice(String(error)));
+invoke('get_settings').then(applySettings).catch(error=>notice(String(error)));
+invoke('get_providers').then(readings=>{extraSnapshots=readings;renderRing();}).catch(error=>notice(String(error)));
 setInterval(renderRing,30_000); // stale state and reset copy move with time
 </script>
 </body>

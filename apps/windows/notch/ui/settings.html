@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>Notch Settings</title>
+<link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="settings.css">
+<body>
+<nav aria-label="Settings"><h1>Notch</h1><p>Settings</p>
+<button data-pane="providers">Providers</button><button data-pane="appearance">Appearance</button>
+<button data-pane="activity">Activity</button><button data-pane="general">General</button></nav>
+<main>
+<section id="providers"><h2>Providers</h2><p>Notch reads usage from your signed-in tools. Enable only the providers you want to monitor.</p><div id="provider-list"></div>
+<h3>Ollama Cloud</h3><label>API key <input id="ollama-key" type="password" autocomplete="off" spellcheck="false"></label>
+<button id="save-key">Save in Credential Manager</button><button id="delete-key">Remove saved key</button>
+<p class="secondary">Borrowed credentials remain read-only. Gemini usage comes from local logs; API secrets are never read.</p></section>
+<section id="appearance" hidden><h2>Appearance</h2>
+<label>Screen edge <select data-setting="edge"><option>right</option><option>left</option><option>top</option><option>bottom</option></select></label>
+<label>Display <select id="display"><option value="">Main display</option></select></label>
+<label><input type="checkbox" data-setting="follow_focus"> Follow active window</label>
+<label>Size <input type="range" data-setting="scale" min="0.5" max="2" step="0.05"></label>
+<label>Position <input type="range" data-setting="notch_y" min="0" max="1" step="0.01"></label>
+<label>Accent <input type="color" data-setting="accent"></label>
+<label>Reset time <select data-setting="reset_format"><option value="relative">Relative</option><option value="absolute">Clock time</option></select></label>
+<label><input type="checkbox" data-setting="show_usage_pace"> Show usage pace</label>
+<button id="reset-display">Reset display placement</button></section>
+<section id="activity" hidden><h2>Activity</h2>
+<label><input type="checkbox" data-setting="announce_completion"> Peek when a session finishes or needs attention</label>
+<label>Peek duration <input type="number" data-setting="peek_seconds" min="0" max="60"> seconds</label>
+<label><input type="checkbox" data-setting="sounds"> Play session sounds</label>
+<p>Mute individual providers in Providers.</p></section>
+<section id="general" hidden><h2>General</h2><p>Development build. Public update checks are disabled.</p>
+<p>Notch is an independent product based on Codenotch by vinzdg and the Windows port by Im-Midi. Licenses remain included.</p>
+<h3>First steps</h3><ol><li>Sign in using your provider’s own app or CLI.</li><li>Enable the provider in Notch.</li><li>Choose a display and screen edge.</li></ol></section>
+<footer><p id="status" role="status"></p><button id="save">Save settings</button></footer>
+</main><script src="settings.js"></script>
+</body></html>

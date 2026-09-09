@@ -23,6 +23,7 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
 }
 
 pub fn build_menu(app: &AppHandle, lang: &str) -> tauri::Result<Menu<Wry>> {
+    let settings = MenuItemBuilder::with_id("settings", "Settings…").build(app)?;
     let install = MenuItemBuilder::with_id("install", tr(lang, "install")).build(app)?;
     let uninstall = MenuItemBuilder::with_id("uninstall", tr(lang, "uninstall")).build(app)?;
     let l_auto = CheckMenuItemBuilder::with_id("lang-auto", tr(lang, "lang_auto"))
@@ -51,6 +52,7 @@ pub fn build_menu(app: &AppHandle, lang: &str) -> tauri::Result<Menu<Wry>> {
         .build(app)?;
     let quit = MenuItemBuilder::with_id("quit", tr(lang, "quit")).build(app)?;
     MenuBuilder::new(app)
+        .item(&settings)
         .items(&[&install, &uninstall])
         .separator()
         .item(&lang_menu)
@@ -78,6 +80,7 @@ fn refresh_menu(app: &AppHandle) {
 
 fn handle(app: &AppHandle, id: &str) {
     match id {
+        "settings" => notice(app, crate::settings::open_settings(app.clone()).map(|_| String::new())),
         "install" => notice(app, hooks_install::install()),
         "uninstall" => notice(app, hooks_install::uninstall()),
         "reset" => crate::reset_bar(app),
@@ -94,11 +97,7 @@ fn handle(app: &AppHandle, id: &str) {
             let _ = cmd.spawn();
         }
         "refresh" => {
-            {
-                let st = app.state::<crate::AppState>();
-                let mut u = st.usage.lock().unwrap();
-                u.backoff_until = 0;
-            }
+
             crate::usage::request_refresh();
             crate::codex::request_refresh();
             crate::cursor::request_refresh();
