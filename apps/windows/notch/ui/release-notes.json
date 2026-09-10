@@ -1,0 +1,16 @@
+[
+  {
+    "version": "0.0.0",
+    "headline": "Notch development preview",
+    "changes": [
+      {
+        "title": "Independent Notch identity",
+        "detail": "Separate application settings, credentials and update channels."
+      },
+      {
+        "title": "Native Mac and Windows development",
+        "detail": "Feature parity and release qualification are still in progress. This preview is not a public release."
+      }
+    ]
+  }
+]

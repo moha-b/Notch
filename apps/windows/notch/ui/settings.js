@@ -95,3 +95,26 @@ action('#reset-display', async () => {
   renderSettings(); await saveSettings();
 });
 initialize().catch(error => { status.textContent = String(error); });
+
+function showUpdate(update) {
+  const preview = update.phase === 'development';
+  document.querySelector('#update-status').textContent = update.error || (preview ? 'Development build. Public updates are disabled.'
+    : update.version ? 'Notch ' + update.version + ' · ' + update.phase : update.phase === 'current' ? 'Notch is up to date.' : 'No update check completed yet.');
+  document.querySelector('#release-notes').textContent = update.notes || '';
+  document.querySelector('#check-update').disabled = preview;
+  document.querySelector('[data-setting=automatic_checks]').disabled = preview;
+  document.querySelector('#download-update').hidden = update.phase !== 'available';
+  document.querySelector('#install-update').hidden = update.phase !== 'ready';
+  document.querySelector('#later-update').hidden = !['available','ready'].includes(update.phase);
+}
+action('#check-update', async () => showUpdate(await invoke('check_update')));
+action('#download-update', async () => { await invoke('download_update'); });
+action('#install-update', async () => {
+  if (window.confirm('Restart Notch and install the verified update now?')) await invoke('install_update');
+});
+action('#later-update', async () => {
+  document.querySelector('#download-update').hidden = true; document.querySelector('#install-update').hidden = true;
+  document.querySelector('#later-update').hidden = true;
+});
+window.__TAURI__.event.listen('update-status', event => showUpdate(event.payload)).catch(error => { status.textContent = String(error); });
+invoke('update_status').then(showUpdate).catch(error => { status.textContent = String(error); });

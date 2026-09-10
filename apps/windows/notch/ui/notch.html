@@ -315,11 +315,7 @@ function armWatchdog(){
 }
 // Viewport fit (pure front-end fallback, independent of Rust): the window is 340 × primary scale physical px,
 // so if this page's CSS viewport is not 340 wide the WebView's DPR disagrees with the monitor; CSS zoom pulls the layout back to the design size.
-function fitZoom(){
-  const z=innerWidth/340;
-  document.documentElement.style.zoom=(Math.abs(z-1)>0.02)?String(z):'';
-  return z;
-}
+function fitZoom(){ return settings.scale; }
 function reportDpr(){
   const z=fitZoom();
   jslog(`dpr=${window.devicePixelRatio} inner=${innerWidth}x${innerHeight} cssZoom=${z.toFixed(3)}`);
@@ -415,6 +411,7 @@ function applySettings(next){
   renderRing(); if(card.classList.contains('show'))renderCard();
 }
 document.querySelector('#settings-button').onclick=()=>invoke('open_settings').catch(error=>notice(String(error)));
+listen('update-status',e=>{if(e.payload.phase==='available')notice('Notch '+e.payload.version+' available. Open Settings to review and update.');}).catch(error=>notice(String(error)));
 listen('providers',e=>{extraSnapshots=e.payload;renderRing();if(card.classList.contains('show'))renderCard();}).catch(error=>notice(String(error)));
 listen('settings',e=>applySettings(e.payload)).catch(error=>notice(String(error)));
 invoke('get_settings').then(applySettings).catch(error=>notice(String(error)));

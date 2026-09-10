@@ -1,0 +1,14 @@
+{
+  "source": "",
+  "providers": {"macos":"pending","windows":"pending"},
+  "profiles": {"macos":"pending","windows":"pending"},
+  "credentials": {"macos":"pending","windows":"pending"},
+  "layout": {"macos":"pending","windows":"pending"},
+  "sessions": {"macos":"pending","windows":"pending"},
+  "settings": {"macos":"pending","windows":"pending"},
+  "install": {"macos":"pending","windows":"pending"},
+  "upgrade": {"macos":"pending","windows":"pending"},
+  "uninstall": {"macos":"pending","windows":"pending"},
+  "updates": {"macos":"pending","windows":"pending"},
+  "screenshots": {"macos":"pending","windows":"pending"}
+}

@@ -1,0 +1,155 @@
+name: Publish Notch
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: Tested main-history commit (full SHA)
+        required: true
+      version:
+        description: Stable X.Y.Z version (first release is 1.0.0)
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: notch-stable-publication
+  cancel-in-progress: false
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate source, version, CI and qualification
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: node scripts/release/prepare.mjs "$SOURCE_SHA" "$RELEASE_VERSION" release/qualification.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-manifest
+          path: work/release/release-manifest.json
+          if-no-files-found: error
+  windows:
+    needs: prepare
+    runs-on: windows-2022
+    timeout-minutes: 45
+    env:
+      NOTCH_CHANNEL: stable
+      NOTCH_SOURCE_SHA: ${{ inputs.source }}
+      NOTCH_TAURI_PUBLIC_KEY: ${{ vars.NOTCH_TAURI_PUBLIC_KEY }}
+      NOTCH_SPARKLE_PUBLIC_KEY: ${{ vars.NOTCH_SPARKLE_PUBLIC_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-manifest
+          path: work/release
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/windows -> target
+      - run: node scripts/release/stamp.mjs work/release/release-manifest.json
+      - run: npm install --global @tauri-apps/cli@2.11.4
+      - run: ./apps/windows/scripts/build-installer.ps1
+      - run: cargo test --locked --workspace --features stable-channel
+        working-directory: apps/windows
+      - run: ./apps/windows/scripts/test-installer.ps1
+        timeout-minutes: 5
+      - name: Collect signed Windows installer
+        shell: pwsh
+        run: |
+          $manifest = Get-Content work/release/release-manifest.json -Raw | ConvertFrom-Json
+          $installer = @(Get-ChildItem apps/windows/target/release/bundle/nsis/*-setup.exe)
+          if ($installer.Count -ne 1) { throw 'Expected exactly one Windows x64 installer.' }
+          $target = "work/release/Notch-$($manifest.version)-windows-x64-setup.exe"
+          Copy-Item -LiteralPath $installer[0].FullName -Destination $target
+          Copy-Item -LiteralPath "$($installer[0].FullName).sig" -Destination "$target.sig"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stable-windows
+          path: work/release/Notch-*-windows-x64-setup.exe*
+          if-no-files-found: error
+  macos:
+    needs: prepare
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      NOTCH_TAURI_PUBLIC_KEY: ${{ vars.NOTCH_TAURI_PUBLIC_KEY }}
+      NOTCH_SPARKLE_PUBLIC_KEY: ${{ vars.NOTCH_SPARKLE_PUBLIC_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-manifest
+          path: work/release
+      - run: brew install xcodegen
+      - run: node scripts/release/stamp.mjs work/release/release-manifest.json
+      - run: make test-ci
+        working-directory: apps/macos
+      - name: Sign and notarize Mac app and DMG
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: bash scripts/release/package-macos.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stable-macos
+          path: work/release/Notch-*-macos-arm64.dmg*
+          if-no-files-found: error
+  publish:
+    needs: [prepare, windows, macos]
+    environment: production
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          path: work/release
+          merge-multiple: true
+      - name: Publish immutable assets, then prepare both feeds
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release/publish.mjs
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: work/pages
+  feeds:
+    needs: publish
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

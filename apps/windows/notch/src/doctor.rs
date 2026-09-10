@@ -35,7 +35,10 @@ pub fn run() -> String {
     let mut o = String::new();
     o += &format!("== Notch doctor v{} ==\n", env!("CARGO_PKG_VERSION"));
 
-    let cfg = crate::config::load();
+    let cfg = match crate::config::load() {
+        Ok(settings) => settings,
+        Err(error) => return format!("{o}settings error: {error}\n"),
+    };
     o += &format!(
         "config: port={} lang={} ({})\n",
         cfg.port,

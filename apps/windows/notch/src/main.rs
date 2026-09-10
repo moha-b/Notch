@@ -22,6 +22,7 @@ mod watcher;
 mod providers;
 mod settings;
 mod placement;
+mod updates;
 
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
@@ -205,11 +206,7 @@ fn get_usage(state: tauri::State<AppState>) -> usage::UsageSnapshot {
 }
 
 #[tauri::command]
-fn refresh_usage(app: AppHandle) {
-    {
-        let st = app.state::<AppState>();
-        drop(st);
-    }
+fn refresh_usage() {
     usage::request_refresh();
     codex::request_refresh();
     cursor::request_refresh();
@@ -566,6 +563,7 @@ fn main() {
             applog(&format!("single instance: another launch was refused; the running instance is build={BUILD} — quit it from the tray first if you just rebuilt"));
             let _ = app.emit("notice", format!("Notch is already running ({BUILD}) — quit it from the tray before starting a new build"));
         }))
+        .manage(updates::Updates::default())
         .manage(AppState {
             providers: Mutex::new(providers::load_cache()),
             store: Mutex::new(Default::default()),
@@ -578,6 +576,7 @@ fn main() {
             activity: Mutex::new(Vec::new()),
         })
         .invoke_handler(tauri::generate_handler![
+            updates::update_status, updates::check_update, updates::download_update, updates::install_update,
             settings::get_settings, settings::save_settings, settings::get_providers,
             settings::open_settings, settings::get_displays, settings::save_ollama_key, settings::delete_ollama_key,
             get_state,
@@ -601,6 +600,8 @@ fn main() {
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
+            if identity::STABLE { handle.plugin(tauri_plugin_updater::Builder::new().build())?; }
+            updates::start(handle.clone());
             if !handle.state::<AppState>().cfg.lock().unwrap().onboarding_complete {
                 settings::open_settings(handle.clone()).map_err(std::io::Error::other)?;
             }

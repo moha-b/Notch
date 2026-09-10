@@ -2,14 +2,27 @@ use super::{home, json_file, Failure};
 use serde_json::Value;
 
 pub fn token(entry: &Value) -> Option<String> {
-    entry.as_str().or_else(|| ["apiKey", "api_key", "token", "key", "accessToken", "auth_token"]
-        .iter().find_map(|field| entry[*field].as_str()))
+    entry
+        .as_str()
+        .or_else(|| {
+            [
+                "apiKey",
+                "api_key",
+                "token",
+                "key",
+                "accessToken",
+                "auth_token",
+            ]
+            .iter()
+            .find_map(|field| entry[*field].as_str())
+        })
         .filter(|token| !token.trim().is_empty() && !token.starts_with("enc:v1:"))
         .map(str::to_owned)
 }
 
 pub fn opencode_auth() -> Result<Value, Failure> {
-    let root = std::env::var_os("XDG_DATA_HOME").map(std::path::PathBuf::from)
+    let root = std::env::var_os("XDG_DATA_HOME")
+        .map(std::path::PathBuf::from)
         .unwrap_or(home()?.join(".local/share"));
     Ok(json_file(&root.join("opencode/auth.json"))?.unwrap_or(Value::Null))
 }
@@ -19,16 +32,38 @@ pub fn glm() -> Result<(String, &'static str), Failure> {
     if let Some(settings) = json_file(&root.join(".claude/settings.json"))? {
         let env = &settings["env"];
         if let Some(host) = env["ANTHROPIC_BASE_URL"].as_str().and_then(console) {
-            if let Some(key) = env["ANTHROPIC_AUTH_TOKEN"].as_str().or_else(|| env["ANTHROPIC_API_KEY"].as_str()) {
-                if !key.is_empty() { return Ok((key.into(), host)); }
+            if let Some(key) = env["ANTHROPIC_AUTH_TOKEN"]
+                .as_str()
+                .or_else(|| env["ANTHROPIC_API_KEY"].as_str())
+            {
+                if !key.is_empty() {
+                    return Ok((key.into(), host));
+                }
             }
         }
     }
-    if let Some(credential) = zcode(&root)? { return Ok(credential); }
+    if let Some(credential) = zcode(&root)? {
+        return Ok(credential);
+    }
     let auth = opencode_auth()?;
-    for id in ["zai-coding-plan", "zai", "z-ai", "z.ai", "glm", "zhipu", "zhipuai"] {
+    for id in [
+        "zai-coding-plan",
+        "zai",
+        "z-ai",
+        "z.ai",
+        "glm",
+        "zhipu",
+        "zhipuai",
+    ] {
         if let Some(key) = token(&auth[id]) {
-            return Ok((key, if id.starts_with("zhipu") { "https://open.bigmodel.cn" } else { "https://api.z.ai" }));
+            return Ok((
+                key,
+                if id.starts_with("zhipu") {
+                    "https://open.bigmodel.cn"
+                } else {
+                    "https://api.z.ai"
+                },
+            ));
         }
     }
     Err(Failure::NeedsAuth)
@@ -36,7 +71,9 @@ pub fn glm() -> Result<(String, &'static str), Failure> {
 
 fn console(base: &str) -> Option<&'static str> {
     let url = tauri::Url::parse(base).ok()?;
-    if url.scheme() != "https" { return None; }
+    if url.scheme() != "https" {
+        return None;
+    }
     match url.host_str()? {
         "api.z.ai" | "z.ai" => Some("https://api.z.ai"),
         "open.bigmodel.cn" | "bigmodel.cn" => Some("https://open.bigmodel.cn"),
@@ -48,10 +85,15 @@ fn zcode(root: &std::path::Path) -> Result<Option<(String, &'static str)>, Failu
     if let Some(config) = json_file(&root.join(".zcode/v2/config.json"))? {
         if let Some(providers) = config["provider"].as_object() {
             for (id, provider) in providers {
-                if !id.contains("coding-plan") || provider["enabled"] == false { continue; }
+                if !id.contains("coding-plan") || provider["enabled"] == false {
+                    continue;
+                }
                 if let Some(key) = token(&provider["options"]["apiKey"]) {
                     let host = match provider["options"]["baseURL"].as_str() {
-                        Some(base) => match console(base) { Some(host) => host, None => continue },
+                        Some(base) => match console(base) {
+                            Some(host) => host,
+                            None => continue,
+                        },
                         None => "https://api.z.ai",
                     };
                     return Ok(Some((key, host)));
@@ -69,15 +111,20 @@ pub fn grok() -> Result<String, Failure> {
 }
 
 pub fn trusted_grok_token(auth: &Value) -> Option<String> {
-    auth.as_object()?.iter().filter(|(issuer, entry)| {
-        issuer.split("::").next() == Some("https://auth.x.ai")
-            || entry["oidc_issuer"].as_str() == Some("https://auth.x.ai")
-    }).find_map(|(_, entry)| token(&entry["key"]))
+    auth.as_object()?
+        .iter()
+        .filter(|(issuer, entry)| {
+            issuer.split("::").next() == Some("https://auth.x.ai")
+                || entry["oidc_issuer"].as_str() == Some("https://auth.x.ai")
+        })
+        .find_map(|(_, entry)| token(&entry["key"]))
 }
 
 pub fn commandcode() -> Result<String, Failure> {
     if let Ok(key) = std::env::var("COMMAND_CODE_API_KEY") {
-        if !key.is_empty() { return Ok(key); }
+        if !key.is_empty() {
+            return Ok(key);
+        }
     }
     let auth = json_file(&home()?.join(".commandcode/auth.json"))?.ok_or(Failure::NeedsAuth)?;
     token(&auth["apiKey"]).ok_or(Failure::NeedsAuth)
@@ -85,16 +132,26 @@ pub fn commandcode() -> Result<String, Failure> {
 
 pub fn copilot() -> Result<String, Failure> {
     for name in ["GH_TOKEN", "GITHUB_TOKEN"] {
-        if let Ok(key) = std::env::var(name) { if !key.is_empty() { return Ok(key); } }
+        if let Ok(key) = std::env::var(name) {
+            if !key.is_empty() {
+                return Ok(key);
+            }
+        }
     }
     let mut command = std::process::Command::new("gh");
     command.args(["auth", "token", "--hostname", "github.com"]);
-    #[cfg(windows)] {
+    #[cfg(windows)]
+    {
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x0800_0000);
     }
     let output = command.output().map_err(|_| Failure::NeedsAuth)?;
-    if !output.status.success() { return Err(Failure::NeedsAuth); }
-    String::from_utf8(output.stdout).ok().map(|key| key.trim().to_owned())
-        .filter(|key| !key.is_empty()).ok_or(Failure::NeedsAuth)
+    if !output.status.success() {
+        return Err(Failure::NeedsAuth);
+    }
+    String::from_utf8(output.stdout)
+        .ok()
+        .map(|key| key.trim().to_owned())
+        .filter(|key| !key.is_empty())
+        .ok_or(Failure::NeedsAuth)
 }

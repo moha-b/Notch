@@ -54,12 +54,23 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             disabled_providers: Vec::new(),
-            provider_order: crate::providers::FAMILIES.iter().map(|id| (*id).into()).collect(),
+            provider_order: crate::providers::FAMILIES
+                .iter()
+                .map(|id| (*id).into())
+                .collect(),
             muted_providers: Vec::new(),
-            edge: "right".into(), display: None, follow_focus: false,
-            scale: 1.0, accent: "#00FF88".into(), reset_format: "relative".into(),
-            show_usage_pace: false, announce_completion: true, sounds: false,
-            peek_seconds: 5, automatic_checks: true, onboarding_complete: false,
+            edge: "right".into(),
+            display: None,
+            follow_focus: false,
+            scale: 1.0,
+            accent: "#00FF88".into(),
+            reset_format: "relative".into(),
+            show_usage_pace: false,
+            announce_completion: true,
+            sounds: false,
+            peek_seconds: 5,
+            automatic_checks: true,
+            onboarding_complete: false,
             port: default_port(),
             lang: default_lang(),
             bar_x: None,
@@ -89,14 +100,17 @@ pub fn load() -> Result<Config, String> {
         Ok(settings) => Ok(settings),
         Err(_) => {
             let backup = path.with_extension(format!("invalid-{}", crate::providers::now_ms()));
-            std::fs::copy(&path, backup).map_err(|error| format!("Cannot preserve damaged settings: {error}"))?;
+            std::fs::copy(&path, backup)
+                .map_err(|error| format!("Cannot preserve damaged settings: {error}"))?;
             Ok(Config::default())
         }
     }
 }
 
 pub fn save(cfg: &Config) {
-    if let Err(error) = try_save(cfg) { eprintln!("Could not save Notch settings: {error}"); }
+    if let Err(error) = try_save(cfg) {
+        eprintln!("Could not save Notch settings: {error}");
+    }
 }
 
 pub fn try_save(cfg: &Config) -> Result<(), String> {
