@@ -142,14 +142,14 @@ function workState(id){
 function glyphHtml(p,small){
   const g=glyphs[p.id];
   if(g&&g.kind==='svg'&&g.svg) return `<span class="mark">${g.svg}</span>`;
-  if(g&&g.url) return `<img class="${g.kind}" src="${g.url}" alt="${p.name}"${small?' style="width:16px;height:16px;border-radius:4px"':''}>`;
-  return small?'':p.glyph; // fallback letter
+  if(g&&g.url) return `<img class="${g.kind}" src="${g.url}" alt="${esc(p.name)}"${small?' style="width:16px;height:16px;border-radius:4px"':''}>`;
+  return small?'':esc(p.glyph); // fallback letter
 }
 // Provider table (order = top to bottom in the pill). `glyph` is the fallback letter used when no mark is available
 function providers(){
   const snapshots={...extraSnapshots,claude:usage,codex:codexSnap,cursor:cursorSnap,antigravity:agSnap};
   return settings.provider_order.filter(id=>!settings.disabled_providers.includes(id)).map(id=>({
-    id,name:providerNames[id],glyph:providerNames[id].slice(0,2),
+    id,name:providerNames[id]||id,glyph:(providerNames[id]||id).slice(0,2),
     snap:snapshots[id]||{status:'',windows:[],fetched_at:0,note:'Waiting for first reading…'}
   }));
 }
@@ -184,13 +184,13 @@ function renderRing(){
   // Rebuild the DOM only when the structure changes (never swap the element under the cursor)
   const want=ps.map(p=>p.id+':'+(glyphs[p.id]?glyphs[p.id].kind:'-')).join(',');
   if(pill.dataset.cells!==want){
-    pill.innerHTML=ps.map(p=>`<div class="cell" data-p="${p.id}">
+    pill.innerHTML=ps.map(p=>`<div class="cell" data-p="${esc(p.id)}">
       <div class="ringwrap"><svg class="ring" viewBox="0 0 56 56"></svg><div class="glyph ${(!glyphs[p.id]&&p.glyph.length>1)?'small':''}">${glyphHtml(p)}</div></div>
       <div class="pct">—</div></div>`).join('');
     pill.dataset.cells=want;
   }
   for(const p of ps){
-    const cell=pill.querySelector(`.cell[data-p="${p.id}"]`); if(!cell) continue;
+    const cell=pill.querySelector(`.cell[data-p="${CSS.escape(p.id)}"]`); if(!cell) continue;
     const svg=cell.querySelector('svg.ring'), pct=cell.querySelector('.pct'), glyph=cell.querySelector('.glyph'), wrap=cell.querySelector('.ringwrap');
     const h=headlineOf(p.snap);
     let inner=`<circle cx="28" cy="28" r="22" fill="#2a2a2a"/><circle cx="28" cy="28" r="25" fill="none" stroke="${TRACK}" stroke-width="5"/>`;
@@ -236,7 +236,7 @@ function renderCard(){
   if(!p) { c.classList.remove('show'); return; }
   const snap=p.snap;
   const headIcon=glyphHtml(p,true);
-  let html=`<div class="c-head">${headIcon}<span class="c-title">${p.name} Usage</span></div>`;
+  let html=`<div class="c-head">${headIcon}<span class="c-title">${esc(p.name)} Usage</span></div>`;
   if(staleOf(snap)&&snap.fetched_at) html+=`<div class="c-sub">Updated ${ago(snap.fetched_at)}</div>`;
   if(snap.status==='needsAuth'){
     const who={claude:'Sign in to Claude Code to see usage.',cursor:'Sign in to Cursor to see usage.',codex:'Sign in to Codex to see usage.',gemini:'Sign in to Antigravity to see usage.'}[p.id]||'';
@@ -283,7 +283,7 @@ function renderCard(){
 }
 // The card follows the hovered cell: vertically centred on it (kept inside the window), tail pointing at it
 function placeCard(){
-  const cell=pill.querySelector(`.cell[data-p="${hoverId}"]`)||pill;
+  const cell=pill.querySelector(`.cell[data-p="${CSS.escape(hoverId)}"]`)||pill;
   const cr=cell.getBoundingClientRect();
   const cy=cr.top+cr.height/2;
   const H=innerHeight, ch=card.offsetHeight||0;
@@ -292,7 +292,7 @@ function placeCard(){
   card.style.setProperty('--tail',Math.max(16,Math.min(ch-16,Math.round(cy-top)))+'px');
 }
 
-function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML;}
+function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML.replace(/"/g,'&quot;');}
 
 /* Hover: stays expanded while either the pill or the card is under the cursor; collapses after a 250 ms grace period (upstream motion rule) */
 const card=document.getElementById('card'), pill=document.getElementById('pill');
@@ -414,7 +414,7 @@ document.querySelector('#settings-button').onclick=()=>invoke('open_settings').c
 listen('update-status',e=>{if(e.payload.phase==='available')notice('Notch '+e.payload.version+' available. Open Settings to review and update.');}).catch(error=>notice(String(error)));
 listen('providers',e=>{extraSnapshots=e.payload;renderRing();if(card.classList.contains('show'))renderCard();}).catch(error=>notice(String(error)));
 listen('settings',e=>applySettings(e.payload)).catch(error=>notice(String(error)));
-invoke('get_settings').then(applySettings).catch(error=>notice(String(error)));
+invoke('get_profile_names').then(names=>{Object.assign(providerNames,names);return invoke('get_settings');}).then(applySettings).catch(error=>notice(String(error)));
 invoke('get_providers').then(readings=>{extraSnapshots=readings;renderRing();}).catch(error=>notice(String(error)));
 setInterval(renderRing,30_000); // stale state and reset copy move with time
 </script>

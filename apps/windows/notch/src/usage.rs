@@ -212,32 +212,20 @@ enum FetchErr {
     Other(String),
 }
 
+pub(crate) fn profile_windows(token: &str) -> Result<Vec<LimitWindow>, crate::providers::Failure> {
+    let response = crate::providers::get(crate::providers::request(ENDPOINT, token)
+        .set("anthropic-beta", "oauth-2025-04-20"))?;
+    Ok(parse_response(&response))
+}
+
 fn fetch_once(token: &str) -> Result<Vec<LimitWindow>, FetchErr> {
-    let resp = ureq::get(ENDPOINT)
-        .set("Authorization", &format!("Bearer {token}"))
-        .set("anthropic-beta", "oauth-2025-04-20")
-        .timeout(Duration::from_secs(15))
-        .call();
-    match resp {
-        Ok(r) => {
-            let v: serde_json::Value = r
-                .into_json()
-                .map_err(|e| FetchErr::Other(format!("parse: {e}")))?;
-            Ok(parse_response(&v))
-        }
-        Err(ureq::Error::Status(401, _)) | Err(ureq::Error::Status(403, _)) => {
-            Err(FetchErr::NeedsAuth)
-        }
-        Err(ureq::Error::Status(429, r)) => {
-            let ra = r
-                .header("retry-after")
-                .and_then(|s| s.parse::<u64>().ok())
-                .unwrap_or(0);
-            Err(FetchErr::RateLimited(ra))
-        }
-        Err(ureq::Error::Status(code, _)) => Err(FetchErr::Other(format!("HTTP {code}"))),
-        Err(e) => Err(FetchErr::Other(format!("{e}"))),
-    }
+    use crate::providers::Failure;
+    profile_windows(token).map_err(|failure| match failure {
+        Failure::NeedsAuth => FetchErr::NeedsAuth,
+        Failure::RateLimited(seconds) => FetchErr::RateLimited(seconds),
+        Failure::Invalid(reason) => FetchErr::Other(reason.into()),
+        Failure::Unavailable(reason) => FetchErr::Other(reason),
+    })
 }
 
 fn backoff_secs(consecutive: u32, retry_after_floor: u64) -> u64 {

@@ -278,6 +278,9 @@ pub fn start(app: AppHandle) {
             let snap = st.cursor.lock().unwrap().clone();
             let _ = app.emit("cursor", &snap);
         }
+        while !crate::providers::enabled(&app, "cursor") {
+            std::thread::sleep(Duration::from_secs(1));
+        }
         if !present() {
             broadcast(&app, UsageSnapshot { status: "absent".into(), ..Default::default() });
             loop {
@@ -286,7 +289,7 @@ pub fn start(app: AppHandle) {
                 continue;
             }
                 sleep_interruptible(600); // Cursor is not installed: look again every 10 minutes
-                if present() {
+                if crate::providers::enabled(&app, "cursor") && present() {
                     break;
                 }
             }

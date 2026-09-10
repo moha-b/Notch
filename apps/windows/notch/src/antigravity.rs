@@ -579,6 +579,9 @@ pub fn start(app: AppHandle) {
             let snap = st.antigravity.lock().unwrap().clone();
             let _ = app.emit("antigravity", &snap);
         }
+        while !crate::providers::enabled(&app, "antigravity") {
+            std::thread::sleep(Duration::from_secs(1));
+        }
         if !present() {
             broadcast(&app, UsageSnapshot { status: "absent".into(), ..Default::default() });
             loop {
@@ -587,7 +590,7 @@ pub fn start(app: AppHandle) {
                 continue;
             }
                 sleep_interruptible(600);
-                if present() {
+                if crate::providers::enabled(&app, "antigravity") && present() {
                     break;
                 }
             }

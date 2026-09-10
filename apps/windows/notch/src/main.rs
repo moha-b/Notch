@@ -34,6 +34,7 @@ pub const BUILD: &str = "r31";
 pub const NOTCH_H: f64 = 460.0; // 300 clipped the card once it held three window blocks plus the session list
 
 pub struct AppState {
+    pub profiles: Vec<providers::profiles::Profile>,
     pub providers: Mutex<std::collections::BTreeMap<String, usage::UsageSnapshot>>,
     pub store: Mutex<state::Store>,
     pub cfg: Mutex<config::Config>,
@@ -550,10 +551,15 @@ fn main() {
         }
     }
 
-    let cfg = match config::load() {
+    let mut cfg = match config::load() {
         Ok(settings) => settings,
         Err(error) => { report(Err(error)); return; }
     };
+    let profiles = match providers::profiles::discover() {
+        Ok(profiles) => profiles,
+        Err(_) => { report(Err("Cannot discover provider profiles. Check access to your home directory.".into())); return; }
+    };
+    providers::profiles::reconcile(&mut cfg, &profiles);
     let port = cfg.port;
 
     tauri::Builder::default()
@@ -565,6 +571,7 @@ fn main() {
         }))
         .manage(updates::Updates::default())
         .manage(AppState {
+            profiles,
             providers: Mutex::new(providers::load_cache()),
             store: Mutex::new(Default::default()),
             cfg: Mutex::new(cfg),
@@ -577,7 +584,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             updates::update_status, updates::check_update, updates::download_update, updates::install_update,
-            settings::get_settings, settings::save_settings, settings::get_providers,
+            settings::get_settings, settings::save_settings, settings::get_providers, settings::get_profile_names,
             settings::open_settings, settings::get_displays, settings::save_ollama_key, settings::delete_ollama_key,
             get_state,
             get_usage,

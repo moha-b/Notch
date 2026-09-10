@@ -1,12 +1,15 @@
 import fs from 'node:fs';
 import {execFileSync} from 'node:child_process';
-import {releaseManifest, qualify, compareVersions} from './policy.mjs';
+import {releaseManifest, qualify, compareVersions, versionParts} from './policy.mjs';
 
 const repository = 'moha-b/Notch';
 const gh = (...args) => execFileSync('gh', args, {encoding:'utf8'}).trim();
 const api = endpoint => JSON.parse(gh('api', `repos/${repository}/${endpoint}`));
 const [source, version, qualificationPath] = process.argv.slice(2);
 if (!/^[a-f0-9]{40}$/.test(source || '')) throw new Error('Select a full source SHA.');
+versionParts(version);
+const tag = `refs/tags/v${version}`;
+if (api(`git/matching-refs/tags/v${version}`).some(reference => reference.ref === tag)) throw new Error('Version tag already exists. Never reuse a tag.');
 execFileSync('git', ['merge-base','--is-ancestor',source,'origin/main']);
 qualify(JSON.parse(fs.readFileSync(qualificationPath, 'utf8')), source);
 const notes = JSON.parse(execFileSync('git', ['show', `${source}:shared/release-notes.json`], {encoding:'utf8'}));

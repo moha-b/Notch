@@ -2,6 +2,7 @@ mod cloud;
 mod credentials;
 mod gemini;
 pub mod keyring;
+pub mod profiles;
 #[cfg(test)]
 mod tests;
 
@@ -64,11 +65,15 @@ pub fn enabled(app: &AppHandle, id: &str) -> bool {
 pub fn start(app: AppHandle) {
     for &(id, fetch) in ADAPTERS {
         let app = app.clone();
-        std::thread::spawn(move || poll(app, id, fetch));
+        std::thread::spawn(move || poll(app, id, || fetch().map(fresh_snapshot)));
+    }
+    for profile in app.state::<AppState>().profiles.clone() {
+        let app = app.clone();
+        std::thread::spawn(move || poll(app, &profile.id, || profiles::read(&profile)));
     }
 }
 
-fn poll(app: AppHandle, id: &str, fetch: Fetch) {
+fn poll(app: AppHandle, id: &str, fetch: impl Fn() -> Result<UsageSnapshot, Failure>) {
     let mut consecutive_limits = 0u32;
     loop {
         if enabled(&app, id) {
@@ -93,18 +98,13 @@ fn poll(app: AppHandle, id: &str, fetch: Fetch) {
 
 fn update_snapshot(
     mut previous: UsageSnapshot,
-    reading: Result<Vec<LimitWindow>, Failure>,
+    reading: Result<UsageSnapshot, Failure>,
     attempts: &mut u32,
 ) -> UsageSnapshot {
     match reading {
-        Ok(windows) => {
+        Ok(snapshot) => {
             *attempts = 0;
-            UsageSnapshot {
-                status: if windows.is_empty() { "none" } else { "ok" }.into(),
-                windows,
-                fetched_at: now_ms(),
-                ..Default::default()
-            }
+            snapshot
         }
         Err(failure) => {
             let (status, note) = failure_message(failure, &mut previous, attempts);
@@ -112,6 +112,15 @@ fn update_snapshot(
             previous.note = note;
             previous
         }
+    }
+}
+
+fn fresh_snapshot(windows: Vec<LimitWindow>) -> UsageSnapshot {
+    UsageSnapshot {
+        status: if windows.is_empty() { "none" } else { "ok" }.into(),
+        windows,
+        fetched_at: now_ms(),
+        ..Default::default()
     }
 }
 
@@ -192,7 +201,7 @@ fn home() -> Result<std::path::PathBuf, Failure> {
     dirs::home_dir().ok_or(Failure::Invalid("Home directory is unavailable."))
 }
 
-fn get(request: ureq::Request) -> Result<Value, Failure> {
+pub(crate) fn get(request: ureq::Request) -> Result<Value, Failure> {
     let response =
         request
             .timeout(Duration::from_secs(15))
@@ -217,7 +226,7 @@ fn get(request: ureq::Request) -> Result<Value, Failure> {
         .map_err(|_| Failure::Invalid("Provider returned malformed JSON."))
 }
 
-fn request(url: &str, token: &str) -> ureq::Request {
+pub(crate) fn request(url: &str, token: &str) -> ureq::Request {
     // Cross-host redirects must never forward borrowed credentials.
     ureq::AgentBuilder::new()
         .redirects(0)

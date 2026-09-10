@@ -147,6 +147,10 @@ fn jwt_claims(token: &str) -> Option<serde_json::Value> {
 fn load_credential() -> Option<Credential> {
     let text = std::fs::read_to_string(auth_path()?).ok()?;
     let v: serde_json::Value = serde_json::from_str(&text).ok()?;
+    credential_from(&v)
+}
+
+fn credential_from(v: &serde_json::Value) -> Option<Credential> {
     let tokens = v.get("tokens")?;
     let access_token = tokens.get("access_token")?.as_str()?.trim().to_string();
     let account_id = tokens.get("account_id")?.as_str()?.trim().to_string();
@@ -177,36 +181,32 @@ enum LiveErr {
     Other(String),
 }
 
-fn fetch_usage(cred: &Credential) -> Result<serde_json::Value, LiveErr> {
-    let resp = ureq::get(ENDPOINT)
-        .set("Authorization", &format!("Bearer {}", cred.access_token))
-        .set("ChatGPT-Account-Id", &cred.account_id)
-        .set("Accept", "application/json")
-        .set("Cache-Control", "no-cache, no-store")
-        .set("User-Agent", concat!("notch/", env!("CARGO_PKG_VERSION"), " (Windows)"))
-        .timeout(Duration::from_secs(15))
-        .call();
-    match resp {
-        Ok(r) => r.into_json().map_err(|e| LiveErr::Other(format!("parse: {e}"))),
-        Err(ureq::Error::Status(code @ (401 | 403), r)) => {
-            // 401 is about the token; 403 can also be an edge node rejecting the user agent — record the status and the start of the body rather than folding both into "please sign in"
-            let head: String = r
-                .into_string()
-                .unwrap_or_default()
-                .chars()
-                .filter(|c| !c.is_control())
-                .take(160)
-                .collect();
-            crate::applog(&format!("codex: usage endpoint HTTP {code}: {head}"));
-            Err(LiveErr::NeedsAuth)
-        }
-        Err(ureq::Error::Status(429, r)) => {
-            let ra = r.header("retry-after").and_then(|s| s.trim().parse::<u64>().ok()).unwrap_or(0);
-            Err(LiveErr::RateLimited(ra.max(BACKOFF_MIN_SECS)))
-        }
-        Err(ureq::Error::Status(code, _)) => Err(LiveErr::Other(format!("HTTP {code}"))),
-        Err(e) => Err(LiveErr::Other(format!("{e}"))),
-    }
+fn usage_reply(credential: &Credential) -> Result<serde_json::Value, crate::providers::Failure> {
+    crate::providers::get(crate::providers::request(ENDPOINT, &credential.access_token)
+        .set("ChatGPT-Account-Id", &credential.account_id)
+        .set("Cache-Control", "no-cache, no-store"))
+}
+
+fn fetch_usage(credential: &Credential) -> Result<serde_json::Value, LiveErr> {
+    use crate::providers::Failure;
+    usage_reply(credential).map_err(|failure| match failure {
+        Failure::NeedsAuth => LiveErr::NeedsAuth,
+        Failure::RateLimited(seconds) => LiveErr::RateLimited(seconds.max(BACKOFF_MIN_SECS)),
+        Failure::Invalid(reason) => LiveErr::Other(reason.into()),
+        Failure::Unavailable(reason) => LiveErr::Other(reason),
+    })
+}
+
+pub(crate) fn profile_reading(credentials: &serde_json::Value) -> Result<UsageSnapshot, crate::providers::Failure> {
+    let credential = credential_from(credentials).ok_or(crate::providers::Failure::NeedsAuth)?;
+    let response = usage_reply(&credential)?;
+    let windows = windows_from_usage(&response);
+    if windows.is_empty() { return Err(crate::providers::Failure::Invalid("Codex reported no usage windows.")); }
+    Ok(UsageSnapshot {
+        status: "ok".into(), windows, fetched_at: now_ms(),
+        note: response.get("plan_type").and_then(|plan| plan.as_str()).map(String::from).or(credential.plan).unwrap_or_default(),
+        ..Default::default()
+    })
 }
 
 /// Upstream's label rule: Codex names windows only by length, and "5h limit" says more than "primary"
@@ -269,7 +269,11 @@ fn windows_from_usage(v: &serde_json::Value) -> Vec<LimitWindow> {
 
 /// The most recently modified rollout: dated directories newest-first, looking only at the three most recent days that have files
 pub fn newest_rollout() -> Option<PathBuf> {
-    let root = codex_home()?.join("sessions");
+    newest_rollout_in(&codex_home()?)
+}
+
+pub(crate) fn newest_rollout_in(profile: &Path) -> Option<PathBuf> {
+    let root = profile.join("sessions");
     let mut days: Vec<PathBuf> = Vec::new();
     let mut years = list_dirs(&root);
     years.sort_by(|a, b| b.cmp(a));
@@ -481,6 +485,9 @@ pub fn start(app: AppHandle) {
             let snap = st.codex.lock().unwrap().clone();
             let _ = app.emit("codex", &snap);
         }
+        while !crate::providers::enabled(&app, "codex") {
+            std::thread::sleep(Duration::from_secs(1));
+        }
         if !present() {
             broadcast(&app, UsageSnapshot { status: "absent".into(), ..Default::default() });
             // Codex is not installed: look again every 10 minutes
@@ -495,7 +502,7 @@ pub fn start(app: AppHandle) {
                     }
                     std::thread::sleep(Duration::from_secs(1));
                 }
-                if present() {
+                if crate::providers::enabled(&app, "codex") && present() {
                     break;
                 }
             }

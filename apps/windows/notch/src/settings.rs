@@ -7,7 +7,7 @@ pub fn get_settings(app: AppHandle) -> Config {
     app.state::<AppState>().cfg.lock().unwrap().clone()
 }
 
-fn validate(settings: &Config) -> Result<(), String> {
+fn validate(settings: &Config, profiles: &[providers::profiles::Profile]) -> Result<(), String> {
     if !["left", "right", "top", "bottom"].contains(&settings.edge.as_str()) {
         return Err("Unknown screen edge.".into());
     }
@@ -29,17 +29,19 @@ fn validate(settings: &Config) -> Result<(), String> {
         return Err("Accent must be a hex color.".into());
     }
     let order: HashSet<_> = settings.provider_order.iter().map(String::as_str).collect();
-    if order.len() != providers::FAMILIES.len()
-        || settings.provider_order.len() != order.len()
-        || providers::FAMILIES.iter().any(|id| !order.contains(id))
-    {
-        return Err("Provider order must contain each family exactly once.".into());
+    let known: HashSet<_> = providers::FAMILIES
+        .iter()
+        .copied()
+        .chain(profiles.iter().map(|profile| profile.id.as_str()))
+        .collect();
+    if order != known || settings.provider_order.len() != order.len() {
+        return Err("Provider order must contain each provider and profile exactly once.".into());
     }
     if settings
         .disabled_providers
         .iter()
         .chain(&settings.muted_providers)
-        .any(|id| !providers::FAMILIES.contains(&id.as_str()))
+        .any(|id| !known.contains(id.as_str()))
     {
         return Err("Unknown provider.".into());
     }
@@ -48,14 +50,23 @@ fn validate(settings: &Config) -> Result<(), String> {
 
 #[tauri::command]
 pub fn save_settings(app: AppHandle, settings: Config) -> Result<(), String> {
-    validate(&settings)?;
     let state = app.state::<AppState>();
+    validate(&settings, &state.profiles)?;
     let mut current = state.cfg.lock().unwrap();
     crate::config::try_save(&settings)?;
     *current = settings.clone();
     drop(current);
     crate::place_notch(&app);
     app.emit("settings", &settings).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_profile_names(app: AppHandle) -> BTreeMap<String, String> {
+    app.state::<AppState>()
+        .profiles
+        .iter()
+        .map(|profile| (profile.id.clone(), profile.name.clone()))
+        .collect()
 }
 
 #[tauri::command]

@@ -68,6 +68,7 @@ function action(selector, operation) {
 }
 
 async function initialize() {
+  Object.assign(names, await invoke('get_profile_names'));
   settings = await invoke('get_settings');
   const displays = await invoke('get_displays');
   for (const display of displays) {

@@ -43,3 +43,12 @@ export function validateAssets(manifest, assets) {
   }
   if (assets.length !== expected.length) throw new Error('Unexpected release platform assets.');
 }
+
+export function verifyPublication(manifest, publishedManifest, publication) {
+  // Retry may resume the same public release; a draft or different build must stay reserved.
+  if (publication.draft || publication.prerelease) throw new Error('Only a stable public release can resume feed publication.');
+  for (const field of ['product','version','source','macBuild','windowsVersion']) {
+    if (manifest[field] !== publishedManifest[field]) throw new Error(`Published ${field} does not match this build.`);
+  }
+  if (JSON.stringify(manifest.targets) !== JSON.stringify(publishedManifest.targets)) throw new Error('Published targets do not match this build.');
+}

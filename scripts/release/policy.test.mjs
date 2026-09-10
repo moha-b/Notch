@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {releaseManifest, versionParts, qualify, validateAssets} from './policy.mjs';
+import {releaseManifest, versionParts, qualify, validateAssets, verifyPublication} from './policy.mjs';
 
 const source = 'a'.repeat(40);
 test('release numbers are stable, monotonic, and start at 1.0.0', () => {
@@ -28,4 +28,15 @@ test('a missing platform or updater signature prevents feed generation', () => {
   assert.throws(() => validateAssets(manifest, assets.slice(0,1)));
   assets[0].signature = '';
   assert.throws(() => validateAssets(manifest, assets));
+});
+test('feed retry accepts only the same public build', () => {
+  const manifest = releaseManifest({version:'1.0.0',source});
+  const publication = {draft:false,prerelease:false};
+  verifyPublication(manifest, structuredClone(manifest), publication);
+  for (const changed of [{source:'b'.repeat(40)},{macBuild:2},{version:'1.0.1'},{targets:['windows-x64']}]) {
+    assert.throws(() => verifyPublication(manifest, {...manifest,...changed}, publication));
+  }
+  for (const changed of [{draft:true},{prerelease:true}]) {
+    assert.throws(() => verifyPublication(manifest, manifest, {...publication,...changed}));
+  }
 });
