@@ -1,6 +1,9 @@
 mod cloud;
 mod credentials;
 mod gemini;
+mod github_cli;
+#[cfg(test)]
+mod http_tests;
 pub mod keyring;
 pub mod profiles;
 #[cfg(test)]
@@ -96,7 +99,7 @@ fn poll(app: AppHandle, id: &str, fetch: impl Fn() -> Result<UsageSnapshot, Fail
     }
 }
 
-fn update_snapshot(
+pub(crate) fn update_snapshot(
     mut previous: UsageSnapshot,
     reading: Result<UsageSnapshot, Failure>,
     attempts: &mut u32,
@@ -202,39 +205,48 @@ fn home() -> Result<std::path::PathBuf, Failure> {
 }
 
 pub(crate) fn get(request: ureq::Request) -> Result<Value, Failure> {
-    let response =
-        request
-            .timeout(Duration::from_secs(15))
-            .call()
-            .map_err(|error| match error {
-                ureq::Error::Status(401 | 403, _) => Failure::NeedsAuth,
-                ureq::Error::Status(429, reply) => Failure::RateLimited(
-                    reply
-                        .header("Retry-After")
-                        .and_then(|s| s.parse().ok())
-                        .unwrap_or(60),
-                ),
-                ureq::Error::Status(_, _) => {
-                    Failure::Unavailable("Provider returned an HTTP error.".into())
-                }
-                ureq::Error::Transport(_) => {
-                    Failure::Unavailable("Provider could not be reached.".into())
-                }
-            })?;
+    let response = request
+        .timeout(Duration::from_secs(15))
+        .call()
+        .map_err(http_failure)?;
+    if !(200..300).contains(&response.status()) {
+        return Err(Failure::Unavailable(
+            "Provider returned an HTTP redirect.".into(),
+        ));
+    }
     response
         .into_json()
         .map_err(|_| Failure::Invalid("Provider returned malformed JSON."))
 }
 
 pub(crate) fn request(url: &str, token: &str) -> ureq::Request {
+    json_request(url).set("Authorization", &format!("Bearer {token}"))
+}
+
+pub(crate) fn json_request(url: &str) -> ureq::Request {
     // Cross-host redirects must never forward borrowed credentials.
     ureq::AgentBuilder::new()
         .redirects(0)
         .build()
         .get(url)
-        .set("Authorization", &format!("Bearer {token}"))
         .set("Accept", "application/json")
         .set("User-Agent", "Notch")
+}
+
+fn http_failure(error: ureq::Error) -> Failure {
+    match error {
+        ureq::Error::Status(401 | 403, _) => Failure::NeedsAuth,
+        ureq::Error::Status(429, reply) => Failure::RateLimited(
+            reply
+                .header("Retry-After")
+                .and_then(|seconds| seconds.parse().ok())
+                .unwrap_or(60),
+        ),
+        ureq::Error::Status(_, _) => {
+            Failure::Unavailable("Provider returned an HTTP error.".into())
+        }
+        ureq::Error::Transport(_) => Failure::Unavailable("Provider could not be reached.".into()),
+    }
 }
 
 fn reset(stamp: &Value) -> Option<u64> {

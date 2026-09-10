@@ -196,19 +196,8 @@ pub fn parse_summary(v: &serde_json::Value) -> (Vec<LimitWindow>, String) {
     (out, note)
 }
 
-enum FetchErr {
-    NeedsAuth,
-    Other(String),
-}
-
-fn fetch_once(cookie: &str) -> Result<serde_json::Value, FetchErr> {
-    let agent = ureq::AgentBuilder::new().timeout(Duration::from_secs(15)).build();
-    match agent.get(ENDPOINT).set("Cookie", cookie).set("Accept", "application/json").call() {
-        Ok(r) => r.into_json::<serde_json::Value>().map_err(|e| FetchErr::Other(format!("parse: {e}"))),
-        Err(ureq::Error::Status(401, _)) | Err(ureq::Error::Status(403, _)) => Err(FetchErr::NeedsAuth),
-        Err(ureq::Error::Status(code, _)) => Err(FetchErr::Other(format!("HTTP {code}"))),
-        Err(e) => Err(FetchErr::Other(format!("{e}"))),
-    }
+fn fetch_once(cookie: &str) -> Result<serde_json::Value, crate::providers::Failure> {
+    crate::providers::get(crate::providers::json_request(ENDPOINT).set("Cookie", cookie))
 }
 
 fn cap(s: &str) -> String {
@@ -219,42 +208,40 @@ fn cap(s: &str) -> String {
     }
 }
 
-fn read_once(prev: &UsageSnapshot) -> UsageSnapshot {
-    let mut snap = prev.clone();
-    let Some(creds) = read_credentials() else {
-        snap.status = "needsAuth".into();
-        snap.note = "Sign in to Cursor (the editor) to see usage.".into();
-        return snap;
-    };
-    match fetch_once(&creds.cookie) {
-        Ok(v) => {
-            let (windows, note) = parse_summary(&v);
-            snap.fetched_at = now_ms();
-            if windows.is_empty() {
-                snap.status = "none".into();
-                snap.windows.clear();
-                snap.note = note;
-            } else {
-                snap.status = "ok".into();
-                snap.windows = windows;
-                snap.note = match (&creds.plan, v.get("membershipType").and_then(|x| x.as_str())) {
-                    (_, Some(m)) => format!("{} · via Cursor", cap(m)),
-                    (Some(p), None) => format!("{} · via Cursor", cap(p)),
-                    _ => String::new(),
-                };
-            }
-        }
-        Err(FetchErr::NeedsAuth) => {
-            snap.status = "needsAuth".into();
-            snap.note = "Cursor session was rejected — sign in again in the editor".into();
-        }
-        Err(FetchErr::Other(msg)) => {
-            // Stale beats invented: keep the old reading, marked stale
-            snap.status = if snap.windows.is_empty() { "error" } else { "stale" }.into();
-            snap.note = msg;
-        }
+fn read_once(previous: &UsageSnapshot, attempts: &mut u32) -> UsageSnapshot {
+    if previous.backoff_until > now_ms() { return previous.clone(); }
+    let reading = read_credentials().ok_or(crate::providers::Failure::NeedsAuth)
+        .and_then(|credentials| fetch_once(&credentials.cookie)
+            .map(|reply| cursor_snapshot(&reply, credentials.plan.as_deref())));
+    crate::providers::update_snapshot(previous.clone(), reading, attempts)
+}
+
+fn cursor_snapshot(reply: &serde_json::Value, cached_plan: Option<&str>) -> UsageSnapshot {
+    let (windows, mut note) = parse_summary(reply);
+    if !windows.is_empty() {
+        note = reply["membershipType"].as_str().or(cached_plan)
+            .map(|plan| format!("{} · via Cursor", cap(plan))).unwrap_or_default();
     }
-    snap
+    UsageSnapshot { status: if windows.is_empty() { "none" } else { "ok" }.into(),
+        windows, note, fetched_at: now_ms(), ..Default::default() }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn refresh_preserves_a_persisted_rate_limit_and_last_reading() {
+        let previous = UsageSnapshot { status: "backoff".into(),
+            backoff_until: now_ms() + 60_000, fetched_at: 42,
+            windows: vec![LimitWindow { used: 0.42, ..Default::default() }], ..Default::default() };
+        let restored: UsageSnapshot = serde_json::from_str(&serde_json::to_string(&previous).unwrap()).unwrap();
+        let snapshot = read_once(&restored, &mut 0);
+        assert_eq!(snapshot.backoff_until, previous.backoff_until);
+        assert_eq!(snapshot.fetched_at, 42);
+        assert_eq!(snapshot.windows[0].used, 0.42);
+        assert_eq!(snapshot.status, "backoff");
+    }
 }
 
 fn broadcast(app: &AppHandle, snap: UsageSnapshot) {
@@ -275,6 +262,7 @@ fn sleep_interruptible(secs: u64) {
 
 pub fn start(app: AppHandle) {
     std::thread::spawn(move || {
+        let mut consecutive_limits = 0;
         {
             let st = app.state::<AppState>();
             let snap = st.cursor.lock().unwrap().clone();
@@ -306,7 +294,7 @@ pub fn start(app: AppHandle) {
                 let s = st.cursor.lock().unwrap().clone();
                 s
             };
-            let snap = read_once(&prev);
+            let snap = read_once(&prev, &mut consecutive_limits);
             if snap.status == "error" || snap.status == "stale" {
                 crate::applog(&format!("cursor: {}", snap.note));
             }

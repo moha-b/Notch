@@ -117,6 +117,9 @@ pub fn trusted_grok_token(auth: &Value) -> Option<String> {
             issuer.split("::").next() == Some("https://auth.x.ai")
                 || entry["oidc_issuer"].as_str() == Some("https://auth.x.ai")
         })
+        .filter(|(_, entry)| {
+            super::reset(&entry["expires_at"]).is_none_or(|expiry| expiry > super::now_ms())
+        })
         .find_map(|(_, entry)| token(&entry["key"]))
 }
 
@@ -138,20 +141,5 @@ pub fn copilot() -> Result<String, Failure> {
             }
         }
     }
-    let mut command = std::process::Command::new("gh");
-    command.args(["auth", "token", "--hostname", "github.com"]);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000);
-    }
-    let output = command.output().map_err(|_| Failure::NeedsAuth)?;
-    if !output.status.success() {
-        return Err(Failure::NeedsAuth);
-    }
-    String::from_utf8(output.stdout)
-        .ok()
-        .map(|key| key.trim().to_owned())
-        .filter(|key| !key.is_empty())
-        .ok_or(Failure::NeedsAuth)
+    super::github_cli::token()
 }

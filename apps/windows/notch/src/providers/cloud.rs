@@ -247,7 +247,7 @@ pub fn parse_ollama(reply: &Value) -> Result<Vec<LimitWindow>, Failure> {
 }
 
 pub fn ollama_local() -> Result<Vec<LimitWindow>, Failure> {
-    parse_ollama_local(&get(ureq::get("http://127.0.0.1:11434/api/ps"))?)
+    parse_ollama_local(&get(super::json_request("http://127.0.0.1:11434/api/ps"))?)
 }
 
 pub fn parse_ollama_local(reply: &Value) -> Result<Vec<LimitWindow>, Failure> {

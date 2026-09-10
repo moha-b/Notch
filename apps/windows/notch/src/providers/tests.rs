@@ -73,13 +73,35 @@ fn failures_preserve_last_reading_and_backoff_does_not_reset_on_refresh() {
 
 #[test]
 fn grok_does_not_borrow_a_lookalike_issuer_credential() {
-    let auth = json!({"https://auth.x.ai.attacker.test::client":{"key":"wrong"}});
-    assert!(credentials::trusted_grok_token(&auth).is_none());
+    for issuer in [
+        "https://auth.x.ai.attacker.test",
+        "https://auth.x.ai@attacker.test",
+        "https://auth.x.ai/customer",
+    ] {
+        let auth = json!({(format!("{issuer}::client")):{"key":"wrong"}});
+        assert!(credentials::trusted_grok_token(&auth).is_none());
+    }
     let auth = json!({"https://auth.x.ai::client":{"key":"fixture-token"}});
     assert_eq!(
         credentials::trusted_grok_token(&auth).as_deref(),
         Some("fixture-token")
     );
+}
+
+#[test]
+fn grok_uses_a_live_trusted_session_instead_of_an_expired_credential() {
+    let mut auth = json!({
+        "https://auth.x.ai::expired":{"key":"expired","expires_at":"2000-01-01T00:00:00Z"},
+        "https://auth.x.ai::live":{"key":"live","expires_at":"2100-01-01T00:00:00Z"}
+    });
+    assert_eq!(
+        credentials::trusted_grok_token(&auth).as_deref(),
+        Some("live")
+    );
+    auth.as_object_mut()
+        .unwrap()
+        .remove("https://auth.x.ai::live");
+    assert!(credentials::trusted_grok_token(&auth).is_none());
 }
 
 #[test]
