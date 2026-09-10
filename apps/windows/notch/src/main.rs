@@ -12,6 +12,8 @@ mod server;
 mod state;
 mod tray;
 mod usage;
+#[cfg(test)]
+mod usage_tests;
 mod codex;
 mod cursor;
 mod antigravity;

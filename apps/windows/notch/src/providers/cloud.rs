@@ -29,6 +29,26 @@ pub fn parse_glm(reply: &Value) -> Result<Vec<LimitWindow>, Failure> {
 }
 
 fn glm_window(limit: &Value) -> Option<LimitWindow> {
+    Some(LimitWindow {
+        duration_seconds: glm_duration(limit),
+        ..window(
+            &glm_window_id(limit)?,
+            limit["percentage"].as_f64()? / 100.0,
+            limit["nextResetTime"].as_u64().filter(|stamp| *stamp > 0),
+        )
+    })
+}
+
+fn glm_duration(limit: &Value) -> Option<f64> {
+    let number = limit["number"].as_f64().filter(|number| *number > 0.0)?;
+    match limit["unit"].as_u64()? {
+        3 => Some(number * 3600.0),
+        6 => Some(number * 7.0 * 86400.0),
+        _ => None,
+    }
+}
+
+fn glm_window_id(limit: &Value) -> Option<String> {
     let id = match (
         limit["type"].as_str(),
         limit["unit"].as_u64(),
@@ -41,11 +61,7 @@ fn glm_window(limit: &Value) -> Option<LimitWindow> {
         (Some(kind), _, _) => kind.to_lowercase(),
         _ => return None,
     };
-    Some(window(
-        &id,
-        limit["percentage"].as_f64()? / 100.0,
-        limit["nextResetTime"].as_u64().filter(|stamp| *stamp > 0),
-    ))
+    Some(id)
 }
 
 pub fn grok() -> Result<Vec<LimitWindow>, Failure> {
@@ -59,21 +75,26 @@ pub fn parse_grok(reply: &Value) -> Result<Vec<LimitWindow>, Failure> {
     let config = reply
         .get("config")
         .ok_or(Failure::Invalid("Grok billing configuration is missing."))?;
-    let reset_at =
-        reset(&config["currentPeriod"]["end"]).or_else(|| reset(&config["billingPeriodEnd"]));
+    let (reset_at, duration_seconds) = grok_period(config);
     if let Some(percent) = config["creditUsagePercent"].as_f64() {
-        return Ok(vec![window("credits", percent / 100.0, reset_at)]);
+        return Ok(vec![LimitWindow {
+            duration_seconds,
+            ..window("credits", percent / 100.0, reset_at)
+        }]);
     }
     let mut windows: Vec<_> = config["productUsage"]
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(|product| {
-            Some(window(
-                product["product"].as_str().unwrap_or("credits"),
-                product["usagePercent"].as_f64()? / 100.0,
-                reset_at,
-            ))
+            Some(LimitWindow {
+                duration_seconds,
+                ..window(
+                    product["product"].as_str().unwrap_or("credits"),
+                    product["usagePercent"].as_f64()? / 100.0,
+                    reset_at,
+                )
+            })
         })
         .collect();
     // Grok's weekly-plan contract omits usage until the first charge in a new pool.
@@ -85,6 +106,17 @@ pub fn parse_grok(reply: &Value) -> Result<Vec<LimitWindow>, Failure> {
         windows.push(window("credits", 0.0, reset_at));
     }
     Ok(windows)
+}
+
+fn grok_period(config: &Value) -> (Option<u64>, Option<f64>) {
+    let current_end = reset(&config["currentPeriod"]["end"]);
+    let reset_at = current_end.or_else(|| reset(&config["billingPeriodEnd"]));
+    let start = if current_end.is_some() {
+        reset(&config["currentPeriod"]["start"])
+    } else {
+        reset(&config["billingPeriodStart"])
+    };
+    (reset_at, crate::usage::period_duration(start, reset_at))
 }
 
 pub fn opencode() -> Result<Vec<LimitWindow>, Failure> {
@@ -103,11 +135,17 @@ pub fn parse_opencode(reply: &Value) -> Result<Vec<LimitWindow>, Failure> {
     Ok(["rolling", "weekly", "monthly"]
         .iter()
         .filter_map(|id| {
-            Some(window(
-                id,
-                usage[*id]["percent"].as_f64()? / 100.0,
-                reset(&usage[*id]["resetsAt"]),
-            ))
+            let reset_at = reset(&usage[*id]["resetsAt"]);
+            let duration_seconds = match *id {
+                "rolling" => Some(5.0 * 3600.0),
+                "weekly" => Some(7.0 * 86400.0),
+                "monthly" => monthly_duration(reset_at),
+                _ => None,
+            };
+            Some(LimitWindow {
+                duration_seconds,
+                ..window(id, usage[*id]["percent"].as_f64()? / 100.0, reset_at)
+            })
         })
         .collect())
 }
@@ -148,9 +186,27 @@ pub fn parse_copilot(reply: &Value) -> Result<Vec<LimitWindow>, Failure> {
                 .iter()
                 .find_map(|field| reset(&quota[*field]))
                 .or_else(|| reset(&reply["quota_reset_date"]));
-            Some(window(id, fraction, reset_at))
+            Some(LimitWindow {
+                duration_seconds: copilot_duration(reset_at),
+                ..window(id, fraction, reset_at)
+            })
         })
         .collect())
+}
+
+fn monthly_duration(reset_at: Option<u64>) -> Option<f64> {
+    let end = chrono::DateTime::from_timestamp_millis(i64::try_from(reset_at?).ok()?)?;
+    let start = end.checked_sub_months(chrono::Months::new(1))?;
+    Some((end - start).num_milliseconds() as f64 / 1000.0)
+}
+
+fn copilot_duration(reset_at: Option<u64>) -> Option<f64> {
+    use chrono::{Datelike, Timelike};
+    let end = chrono::DateTime::from_timestamp_millis(i64::try_from(reset_at?).ok()?)?;
+    if end.day() != 1 || end.num_seconds_from_midnight() != 0 {
+        return None;
+    }
+    monthly_duration(reset_at)
 }
 
 pub fn ollama() -> Result<Vec<LimitWindow>, Failure> {
@@ -243,6 +299,36 @@ pub fn commandcode() -> Result<Vec<LimitWindow>, Failure> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn calendar_periods_handle_leap_years_and_reject_unknown_copilot_boundaries() {
+        for (stamp, monthly, copilot) in [
+            ("2028-03-01T00:00:00Z", 29.0, Some(29.0)),
+            ("2027-03-01T00:00:00Z", 28.0, Some(28.0)),
+            ("2027-03-31T08:00:00Z", 31.0, None),
+            ("2027-03-01T08:00:00Z", 28.0, None),
+        ] {
+            let reset_at = reset(&serde_json::json!(stamp));
+            assert_eq!(monthly_duration(reset_at), Some(monthly * 86400.0));
+            assert_eq!(
+                copilot_duration(reset_at),
+                copilot.map(|days| days * 86400.0)
+            );
+        }
+    }
+
+    #[test]
+    fn glm_unknown_units_have_no_pace_duration() {
+        for (unit, number, expected) in [
+            (3, 5, Some(18000.0)),
+            (6, 2, Some(1209600.0)),
+            (9, 1, None),
+            (3, 0, None),
+        ] {
+            let reply = serde_json::json!({"data":{"limits":[{"unit":unit,"number":number,"percentage":42}]}});
+            assert_eq!(parse_glm(&reply).unwrap()[0].duration_seconds, expected);
+        }
+    }
 
     #[test]
     fn billing_query_preserves_organization_and_optional_timestamp() {

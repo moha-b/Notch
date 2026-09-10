@@ -52,6 +52,8 @@ pub struct LimitWindow {
     pub used: f64,
     /// Reset time, ms epoch (None = unknown)
     pub resets_at: Option<u64>,
+    #[serde(default)]
+    pub duration_seconds: Option<f64>,
     /// Pure count window (no published denominator, e.g. Antigravity's requests today) — the cell shows ~N and the ring draws only its track
     #[serde(default)]
     pub count: Option<i64>,
@@ -136,6 +138,36 @@ fn parse_reset(v: &serde_json::Value) -> Option<u64> {
         .map(|d| d.timestamp_millis().max(0) as u64)
 }
 
+pub(crate) fn period_duration(start: Option<u64>, end: Option<u64>) -> Option<f64> {
+    end?.checked_sub(start?).filter(|duration| *duration > 0).map(|ms| ms as f64 / 1000.0)
+}
+
+fn claude_duration(kind: &str) -> Option<f64> {
+    match kind {
+        "session" | "five_hour" => Some(5.0 * 3600.0),
+        "seven_day" => Some(7.0 * 86400.0),
+        weekly if weekly.starts_with("weekly_") => Some(7.0 * 86400.0),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn claude_durations_follow_known_windows_and_fallback_aliases() {
+        let reply = json!({"limits":[
+            {"kind":"weekly_all","percent":42,"resets_at":"2027-01-15T08:00:00Z"},
+            {"kind":"experimental","percent":10,"resets_at":"2027-01-15T08:00:00Z"}],
+            "five_hour":{"utilization":25,"resets_at":"2027-01-15T08:00:00Z"}});
+        let windows = parse_response(&reply);
+        assert_eq!(windows.iter().map(|window| window.duration_seconds).collect::<Vec<_>>(),
+            vec![Some(18000.0), Some(604800.0), None]);
+    }
+}
+
 fn label_for(kind: &str) -> String {
     match kind {
         "session" => "Current session".into(),
@@ -171,6 +203,7 @@ fn parse_response(v: &serde_json::Value) -> Vec<LimitWindow> {
                 id: kind.to_string(),
                 label: label_for(kind),
                 used: (pct / 100.0).clamp(0.0, 1.0),
+                duration_seconds: claude_duration(kind),
                 resets_at: resets, ..Default::default()
             });
         }
@@ -199,7 +232,8 @@ fn parse_response(v: &serde_json::Value) -> Vec<LimitWindow> {
         if dup {
             continue;
         }
-        out.push(LimitWindow { id: id.into(), label, used, resets_at, ..Default::default() });
+        out.push(LimitWindow { id: id.into(), label, used, resets_at,
+            duration_seconds: claude_duration(id), ..Default::default() });
     }
     // session always comes first (upstream display order)
     out.sort_by_key(|w| if w.id == "session" { 0 } else { 1 });

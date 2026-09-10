@@ -63,6 +63,7 @@ jobs:
       - run: node scripts/release/stamp.mjs work/release/release-manifest.json
       - run: node apps/windows/scripts/alerts.test.mjs
       - run: node apps/windows/scripts/geometry.test.mjs
+      - run: node apps/windows/scripts/usage-pace.test.mjs
       - run: npm install --global @tauri-apps/cli@2.11.4
       - run: ./apps/windows/scripts/build-installer.ps1
       - run: cargo test --locked --workspace --features stable-channel

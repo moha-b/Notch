@@ -257,6 +257,7 @@ fn windows_from_usage(v: &serde_json::Value) -> Vec<LimitWindow> {
         out.push(LimitWindow {
             id: id.into(),
             label: label_for(num(w.get("limit_window_seconds")).map(|s| s / 60.0), id),
+            duration_seconds: num(w.get("limit_window_seconds")).filter(|seconds| *seconds > 0.0),
             used: (pct / 100.0).clamp(0.0, 1.0),
             resets_at,
             ..Default::default()
@@ -341,17 +342,18 @@ pub fn snapshot_from_rollout(text: &str) -> Option<(Vec<LimitWindow>, Option<u64
             .and_then(|x| x.as_str())
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|d| d.timestamp_millis().max(0) as u64);
-        let now = now_ms();
         let mut out = Vec::new();
         for id in ["primary", "secondary"] {
             let Some(w) = rl.get(id).filter(|x| x.is_object()) else { continue };
             let Some(pct) = num(w.get("used_percent")) else { continue };
             let resets_at = num(w.get("resets_at"))
                 .map(|s| (s * 1000.0) as u64)
-                .or_else(|| num(w.get("resets_in_seconds")).map(|s| now + (s * 1000.0) as u64));
+                .or_else(|| num(w.get("resets_in_seconds")).filter(|seconds| *seconds >= 0.0)
+                    .and_then(|seconds| recorded?.checked_add((seconds * 1000.0) as u64)));
             out.push(LimitWindow {
                 id: id.into(),
                 label: label_for(num(w.get("window_minutes")), id),
+                duration_seconds: num(w.get("window_minutes")).filter(|minutes| *minutes > 0.0).map(|minutes| minutes * 60.0),
                 used: (pct / 100.0).clamp(0.0, 1.0),
                 resets_at, ..Default::default()
             });

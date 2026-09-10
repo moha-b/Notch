@@ -59,6 +59,8 @@ targets:
     platform: macOS
     sources:
       - path: Tests
+      - path: ../../shared/usage-pace-fixtures.json
+        buildPhase: resources
     dependencies:
       - target: Notch
     settings:

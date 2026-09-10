@@ -1,0 +1,18 @@
+[
+  {"name":"weekly deficit","used":0.98,"remaining":86400,"duration":604800,"points":12.2857142857,"summary":"12.3% deficit"},
+  {"name":"weekly reserve","used":0.27,"remaining":302400,"duration":604800,"points":-23,"summary":"23% reserved"},
+  {"name":"reported three-day cycle","used":0.8,"remaining":129600,"duration":259200,"points":30,"summary":"30% deficit"},
+  {"name":"fresh reset clock skew","used":0.2,"remaining":604801,"duration":604800,"points":20,"summary":"20% deficit"},
+  {"name":"exhausted quota","used":1.2,"remaining":302400,"duration":604800,"points":50,"summary":"50% deficit"},
+  {"name":"tiny deficit","used":0.5004,"remaining":302400,"duration":604800,"points":0.04,"summary":"<0.1% deficit"},
+  {"name":"tiny reserve","used":0.4996,"remaining":302400,"duration":604800,"points":-0.04,"summary":"<0.1% reserved"},
+  {"name":"on pace","used":0.5,"remaining":302400,"duration":604800,"points":0,"summary":"0% reserved"},
+  {"name":"missing fraction","used":null,"remaining":302400,"duration":604800,"points":null},
+  {"name":"negative fraction","used":-0.1,"remaining":302400,"duration":604800,"points":null},
+  {"name":"missing reset","used":0.5,"remaining":null,"duration":604800,"points":null},
+  {"name":"reset boundary","used":0.5,"remaining":0,"duration":604800,"points":null},
+  {"name":"expired window","used":0.5,"remaining":-1,"duration":604800,"points":null},
+  {"name":"unknown duration","used":0.5,"remaining":302400,"duration":null,"points":null},
+  {"name":"zero duration","used":0.5,"remaining":302400,"duration":0,"points":null},
+  {"name":"negative duration","used":0.5,"remaining":302400,"duration":-1,"points":null}
+]

@@ -1,5 +1,6 @@
 :root { --notch-scale: 1; }
 #pill {
+  background: var(--notch);
   width: var(--side-body-depth);
   padding: var(--pad-top) 0 var(--pad-bottom);
   gap: var(--cell-spacing);
@@ -13,6 +14,8 @@
 .ringwrap { width: var(--ring-diameter); height: var(--ring-diameter); }
 .cell { gap: var(--ring-label-gap); flex-shrink: 0; }
 .pct { font-size: 13px; }
+.w-track { background: var(--bar-track); }
+.w-used, .w-reset, .c-sub { color: var(--text-secondary); }
 .glyph .mark, .glyph .mark svg, .glyph img.png { width: var(--glyph-size); height: var(--glyph-size); }
 #card {
   background: var(--card);
@@ -49,3 +52,4 @@ body[data-edge=top] #card, body[data-edge=bottom] #card { width: min(var(--card-
 body[data-edge=top] #pill::before, body[data-edge=top] #pill::after,
 body[data-edge=bottom] #pill::before, body[data-edge=bottom] #pill::after { display: none; }
 @media (prefers-reduced-motion: reduce) { .arc-spin, .arc-pulse { animation: none; } }
+.w-pace { font-size: 11px; margin-top: 4px; }

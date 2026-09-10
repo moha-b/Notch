@@ -1,21 +1,15 @@
 import SwiftUI
 
-/// Sampled from `docs/design/frame-124-hover-tooltip.png`, not invented.
-///
-/// Note these differ slightly from the hexes written in the design spec — the
-/// frame is the source of truth, so the sampled values win.
 enum Palette {
-    static let notch         = Color.black                    // #000000
-    static let card          = Color.black                    // #000000
-    static let ringTrack     = Color(hex: 0x303030)
-    static let barTrack      = Color(hex: 0x2D2D2D)
-
-    static let ample         = Color(hex: 0x00FF88)           // green
-    static let watch         = Color(hex: 0xF2FF00)           // yellow
-    static let critical      = Color(hex: 0xFF3F00)           // orange
-
-    static let textPrimary   = Color.white
-    static let textSecondary = Color(hex: 0x808080)
+    static let notch = Color(hex: NotchColors.notch)
+    static let card = Color(hex: NotchColors.card)
+    static let ringTrack = Color(hex: NotchColors.ringTrack)
+    static let barTrack = Color(hex: NotchColors.barTrack)
+    static let ample = Color(hex: NotchColors.ample)
+    static let watch = Color(hex: NotchColors.watch)
+    static let critical = Color(hex: NotchColors.critical)
+    static let textPrimary = Color(hex: NotchColors.textPrimary)
+    static let textSecondary = Color(hex: NotchColors.textSecondary)
 }
 
 extension Color {

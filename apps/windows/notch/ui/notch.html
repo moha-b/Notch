@@ -109,13 +109,14 @@
 </div>
 <script src="alerts.js"></script>
 <script src="geometry.js"></script>
+<script src="usage-pace.js"></script>
 <script>
 const invoke = window.__TAURI__.core.invoke;
 const listen = window.__TAURI__.event.listen;
 
-/* Colour ramp (upstream palette values) */
-const AMPLE='#00FF88', WATCH='#F2FF00', CRIT='#FF3F00';
-const TRACK='#303030', AMBER='#FFBF00', RUNGREEN='#28E07B';
+const tokenColor=name=>getComputedStyle(document.documentElement).getPropertyValue('--'+name).trim();
+const AMPLE=tokenColor('ample'), WATCH=tokenColor('watch'), CRIT=tokenColor('critical');
+const TRACK=tokenColor('ring-track'), AMBER='#FFBF00', RUNGREEN='#28E07B';
 const tone=f=> f>=0.8?CRIT : f>=0.5?WATCH : (settings.accent||AMPLE);
 
 let usage={status:'',windows:[],fetched_at:0,note:''};
@@ -242,6 +243,11 @@ function ago(ms){
 const STATE_DOT={running:RUNGREEN,attention:AMBER,done:'#57c7ff'};
 
 let hoverId='claude';
+function paceHtml(window){
+  if(!settings.show_usage_pace)return '';
+  const pace=NotchUsagePace(window,Date.now());
+  return pace?`<div class="w-pace" style="color:${pace.deficit?CRIT:AMPLE}">${esc(pace.summary)}</div>`:'';
+}
 function renderCard(){
   const c=document.getElementById('card');
   const p=providers().find(x=>x.id===hoverId)||providers()[0];
@@ -265,7 +271,8 @@ function renderCard(){
       html+=`<div class="win">
         <div class="w-row"><span class="w-label">${esc(w.label)}</span><span class="w-reset">${resetCopy(w.resets_at)}</span></div>
         <div class="w-track"><div class="w-fill" style="width:${(Math.min(w.used,1)*100).toFixed(0)}%;background:${tone(w.used)}"></div></div>
-        <div class="w-used">${w.derived?'~':''}${Math.round(w.used*100)}% Used</div>
+        <div class="w-used">${w.derived?'~':''}${Math.round(w.used*100)}% Used · ${Math.max(0,100-Math.round(w.used*100))}% left</div>
+        ${paceHtml(w)}
       </div>`;
     }
     if(snap.note) html+=`<div class="c-note">${esc(snap.note)}</div>`;
@@ -475,7 +482,7 @@ listen('providers',e=>{extraSnapshots=e.payload;renderRing();if(card.classList.c
 listen('settings',e=>applySettings(e.payload)).catch(error=>notice(String(error)));
 invoke('get_profile_names').then(names=>{Object.assign(providerNames,names);return invoke('get_settings');}).then(applySettings).catch(error=>notice(String(error)));
 invoke('get_providers').then(readings=>{extraSnapshots=readings;renderRing();}).catch(error=>notice(String(error)));
-setInterval(renderRing,30_000); // stale state and reset copy move with time
+setInterval(()=>{renderRing();if(card.classList.contains('show'))renderCard();},30_000);
 </script>
 </body>
 </html>

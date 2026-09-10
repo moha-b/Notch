@@ -14,41 +14,33 @@ final class UsagePaceTests: XCTestCase {
             .usagePace(now: now)
     }
 
-    func testCalculatesDeficitAndReserve() throws {
-        let deficit = try XCTUnwrap(pace(used: 0.98, remaining: 86400))
-        XCTAssertEqual(deficit.percentagePoints, 12.285714, accuracy: 0.00001)
-        XCTAssertEqual(deficit.summary, "12.3% deficit")
-        XCTAssertTrue(deficit.isDeficit)
-
-        let reserved = try XCTUnwrap(pace(used: 0.27))
-        XCTAssertEqual(reserved.percentagePoints, -23, accuracy: 0.00001)
-        XCTAssertEqual(reserved.summary, "23% reserved")
-        XCTAssertFalse(reserved.isDeficit)
+    private struct PaceFixture: Decodable {
+        let name: String
+        let used: Double?
+        let remaining: Double?
+        let duration: Double?
+        let points: Double?
+        let summary: String?
     }
 
-    func testUsesAnyReportedDuration() throws {
-        let result = try XCTUnwrap(pace(used: 0.8, remaining: 36 * 3600, duration: 3 * 86400))
-        XCTAssertEqual(result.percentagePoints, 30, accuracy: 0.00001)
+    func testSharedNativePaceContract() throws {
+        let url = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "usage-pace-fixtures", withExtension: "json"))
+        let fixtures = try JSONDecoder().decode([PaceFixture].self, from: Data(contentsOf: url))
+        for fixture in fixtures {
+            let actual = pace(used: fixture.used, remaining: fixture.remaining, duration: fixture.duration)
+            if let points = fixture.points {
+                let actual = try XCTUnwrap(actual, fixture.name)
+                XCTAssertEqual(actual.percentagePoints, points, accuracy: 0.000001, fixture.name)
+                XCTAssertEqual(actual.summary, fixture.summary, fixture.name)
+                XCTAssertEqual(actual.isDeficit, points > 0, fixture.name)
+            } else { XCTAssertNil(actual, fixture.name) }
+        }
     }
 
-    func testAResetJustBeyondTheCycleStartsAtZeroElapsed() throws {
-        let result = try XCTUnwrap(pace(used: 0.2, remaining: 604801))
-        XCTAssertEqual(result.percentagePoints, 20, accuracy: 0.00001)
-    }
-
-    func testRequiresAValidCurrentWindow() {
-        let invalid = [
-            pace(used: nil), pace(used: .infinity), pace(used: -0.1),
-            pace(remaining: nil), pace(remaining: 0),
-            pace(duration: nil), pace(duration: 0), pace(duration: .infinity),
-        ]
-        for result in invalid { XCTAssertNil(result) }
-    }
-
-    func testFormattingKeepsTheSignAtSubTenthPrecision() throws {
-        XCTAssertEqual(try XCTUnwrap(pace(used: 0.5004)).summary, "<0.1% deficit")
-        XCTAssertEqual(try XCTUnwrap(pace(used: 0.4996)).summary, "<0.1% reserved")
-        XCTAssertEqual(try XCTUnwrap(pace()).summary, "0% reserved")
+    func testNonFiniteReadingsHaveNoPace() {
+        for invalid in [pace(used: .infinity), pace(used: .nan), pace(duration: .infinity), pace(remaining: .infinity)] {
+            XCTAssertNil(invalid)
+        }
     }
 
     func testDurationCodingRemainsBackwardCompatible() throws {

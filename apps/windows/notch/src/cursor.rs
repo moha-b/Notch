@@ -155,16 +155,17 @@ fn parse_iso(v: Option<&serde_json::Value>) -> Option<u64> {
 /// usage-summary → (windows, note). When there are no windows the note says why (Unlimited / free plan without an allowance)
 pub fn parse_summary(v: &serde_json::Value) -> (Vec<LimitWindow>, String) {
     let resets_at = parse_iso(v.get("billingCycleEnd"));
+    let duration_seconds = crate::usage::period_duration(parse_iso(v.get("billingCycleStart")), resets_at);
     let usage = v.get("individualUsage").cloned().unwrap_or(serde_json::Value::Null);
     let plan = usage.get("plan").cloned().unwrap_or(serde_json::Value::Null);
     let mut out = Vec::new();
     // Headline = the dashboard number; 0 is a reading too
     if let Some(total) = pct(plan.get("totalPercentUsed")) {
-        out.push(LimitWindow { id: "included".into(), label: "Included usage".into(), used: total, resets_at, ..Default::default() });
+        out.push(LimitWindow { id: "included".into(), label: "Included usage".into(), used: total, resets_at, duration_seconds, ..Default::default() });
     }
     if let Some(api) = pct(plan.get("apiPercentUsed")) {
         if api > 0.0 {
-            out.push(LimitWindow { id: "api".into(), label: "API usage".into(), used: api, resets_at, ..Default::default() });
+            out.push(LimitWindow { id: "api".into(), label: "API usage".into(), used: api, resets_at, duration_seconds, ..Default::default() });
         }
     }
     if let Some(od) = usage.get("onDemand") {
@@ -177,6 +178,7 @@ pub fn parse_summary(v: &serde_json::Value) -> (Vec<LimitWindow>, String) {
                     id: "on_demand".into(),
                     label: "On demand".into(),
                     used: (u / limit).clamp(0.0, 1.0),
+                    duration_seconds,
                     resets_at, ..Default::default()
                 });
             }

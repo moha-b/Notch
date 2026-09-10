@@ -10,7 +10,7 @@ import SwiftUI
 /// type, tooltip — resizes together, still in the design's proportions.
 enum Design {
     /// Points per pixel of the design frame.
-    static let scale: CGFloat = 44.0 / 117.0
+    static let scale: CGFloat = NotchTokens.designScale
 
     /// A distance measured in design-frame pixels, in points.
     static func px(_ pixels: CGFloat) -> CGFloat { pixels * scale }
