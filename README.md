@@ -11,6 +11,8 @@ One usage notch for macOS and Windows, built with native platform integrations.
 
 The frozen feature target includes twelve provider families, multi-account profiles, screen-edge placement, multi-display behavior, activity, alerts and matching settings. See [provider feasibility](docs/provider-feasibility.md) and [source provenance](docs/provenance.md).
 
+See [implementation status](docs/implementation-status.md) for verified milestones and remaining launch gates.
+
 Public release is gated by feature parity, native validation, and Notch-owned signing/notarization credentials. Upstream credentials and signing identities are never reused.
 
 ## Source and credits

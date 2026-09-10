@@ -8,26 +8,7 @@ pub fn get_settings(app: AppHandle) -> Config {
 }
 
 fn validate(settings: &Config, profiles: &[providers::profiles::Profile]) -> Result<(), String> {
-    if !["left", "right", "top", "bottom"].contains(&settings.edge.as_str()) {
-        return Err("Unknown screen edge.".into());
-    }
-    if !settings.scale.is_finite() || !(0.5..=2.0).contains(&settings.scale) {
-        return Err("Size must be between 50% and 200%.".into());
-    }
-    if !settings.notch_y.is_finite() || !(0.0..=1.0).contains(&settings.notch_y) {
-        return Err("Offset must be between 0 and 1.".into());
-    }
-    if settings.peek_seconds > 60 {
-        return Err("Peek duration must be at most 60 seconds.".into());
-    }
-    if settings.accent.len() != 7
-        || !settings.accent.starts_with('#')
-        || !settings.accent[1..]
-            .bytes()
-            .all(|byte| byte.is_ascii_hexdigit())
-    {
-        return Err("Accent must be a hex color.".into());
-    }
+    settings.validate()?;
     let order: HashSet<_> = settings.provider_order.iter().map(String::as_str).collect();
     let known: HashSet<_> = providers::FAMILIES
         .iter()

@@ -15,6 +15,6 @@ test-ci: gen
 candidate: gen
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -destination '$(DEST)' -configuration Release -derivedDataPath build/DerivedData $(SIGN) build
 	mkdir -p build/dmg-stage
-	cp -R build/DerivedData/Build/Products/Release/Notch.app build/dmg-stage/
+	cp -R build/DerivedData/Build/Products/Release/Notch.app 'build/dmg-stage/Notch Preview.app'
 	ln -s /Applications build/dmg-stage/Applications
 	hdiutil create -volname 'Notch Preview' -srcfolder build/dmg-stage -format UDZO build/Notch-Preview.dmg

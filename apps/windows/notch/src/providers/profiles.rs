@@ -76,6 +76,9 @@ pub fn reconcile(settings: &mut Config, profiles: &[Profile]) {
     for profile in profiles {
         if !settings.provider_order.contains(&profile.id) {
             settings.provider_order.push(profile.id.clone());
+            if !settings.onboarding_complete && !settings.disabled_providers.contains(&profile.id) {
+                settings.disabled_providers.push(profile.id.clone());
+            }
         }
     }
 }

@@ -23,6 +23,8 @@ mod providers;
 mod settings;
 mod placement;
 mod updates;
+mod sounds;
+mod hit_regions;
 
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
@@ -583,6 +585,8 @@ fn main() {
             activity: Mutex::new(Vec::new()),
         })
         .invoke_handler(tauri::generate_handler![
+            hit_regions::set_hit_regions,
+            sounds::play_session_sound,
             updates::update_status, updates::check_update, updates::download_update, updates::install_update,
             settings::get_settings, settings::save_settings, settings::get_providers, settings::get_profile_names,
             settings::open_settings, settings::get_displays, settings::save_ollama_key, settings::delete_ollama_key,
@@ -613,6 +617,7 @@ fn main() {
                 settings::open_settings(handle.clone()).map_err(std::io::Error::other)?;
             }
             place_notch(&handle);
+            hit_regions::set_hit_regions(handle.clone(), Vec::new()).map_err(std::io::Error::other)?;
             noactivate(&handle);
             placement::watch(handle.clone());
             if let Some(w) = handle.get_webview_window("notch") {

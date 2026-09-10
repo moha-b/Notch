@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+mod validation;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -90,21 +92,47 @@ pub fn config_path() -> PathBuf {
 }
 
 pub fn load() -> Result<Config, String> {
-    let path = config_path();
+    load_from(&config_path())
+}
+
+fn load_from(path: &std::path::Path) -> Result<Config, String> {
     let bytes = match std::fs::read(&path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Config::default()),
         Err(error) => return Err(format!("Could not read Notch settings: {error}")),
     };
-    match serde_json::from_slice(&bytes) {
+    match decode(&bytes) {
         Ok(settings) => Ok(settings),
         Err(_) => {
             let backup = path.with_extension(format!("invalid-{}", crate::providers::now_ms()));
-            std::fs::copy(&path, backup)
-                .map_err(|error| format!("Cannot preserve damaged settings: {error}"))?;
-            Ok(Config::default())
+            preserve_damaged_settings(&backup, &bytes)?;
+            Ok(Config {
+                disabled_providers: crate::providers::FAMILIES
+                    .iter()
+                    .map(|id| (*id).into())
+                    .collect(),
+                ..Config::default()
+            })
         }
     }
+}
+
+fn preserve_damaged_settings(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+    let mut backup = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(|error| format!("Cannot preserve damaged settings: {error}"))?;
+    backup
+        .write_all(bytes)
+        .map_err(|error| format!("Cannot preserve damaged settings: {error}"))
+}
+
+fn decode(bytes: &[u8]) -> Result<Config, String> {
+    let settings: Config = serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
+    settings.validate()?;
+    Ok(settings)
 }
 
 pub fn save(cfg: &Config) {
@@ -114,6 +142,7 @@ pub fn save(cfg: &Config) {
 }
 
 pub fn try_save(cfg: &Config) -> Result<(), String> {
+    cfg.validate()?;
     let path = config_path();
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|error| error.to_string())?;

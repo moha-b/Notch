@@ -23,6 +23,8 @@ jobs:
           node-version: '22'
       - run: node scripts/generate-design.mjs --check
       - run: node scripts/release/policy.test.mjs
+      - run: node apps/windows/scripts/alerts.test.mjs
+      - run: node apps/windows/scripts/geometry.test.mjs
       - id: paths
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}

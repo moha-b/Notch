@@ -107,6 +107,8 @@
   <button id="settings-button" title="Settings" aria-label="Settings">⚙</button>
   <div id="notice"></div>
 </div>
+<script src="alerts.js"></script>
+<script src="geometry.js"></script>
 <script>
 const invoke = window.__TAURI__.core.invoke;
 const listen = window.__TAURI__.event.listen;
@@ -123,6 +125,8 @@ let agSnap={status:'absent',windows:[],fetched_at:0,note:''};
 const providerNames={"claude":"Claude","cursor":"Cursor","codex":"Codex","antigravity":"Antigravity","glm":"GLM","grok":"Grok","opencode":"OpenCode","commandcode":"Command Code","copilot":"GitHub Copilot","ollama-local":"Ollama Local","ollama":"Ollama Cloud","gemini-api":"Gemini API"};
 let extraSnapshots={};
 let settings={provider_order:Object.keys(providerNames),disabled_providers:[],edge:'right',scale:1};
+let settingsReady=false;
+const alerts=new NotchAlerts();
 let glyphs={}; // id → {kind:'mark'|'appicon', url}
 let activity=[]; // working state of the non-Claude providers: {provider,state:'busy'|'waiting',name,detail,since}
 // "Is it working?" per provider: Claude from the four-state engine, the others from the activity probe. Returns running | attention | idle
@@ -130,6 +134,7 @@ function workState(id){
   if(id==='claude'){
     if(stateSnap.agg==='running') return 'running';
     if(stateSnap.agg==='attention') return 'attention';
+    if(stateSnap.agg==='done') return 'done';
     // The engine cannot see cloud sessions: fall back to the desktop app's network activity
     if(activity.some(a=>a.provider==='claude'&&a.state==='busy')) return 'running';
     return 'idle';
@@ -208,6 +213,13 @@ function renderRing(){
     glyph.classList.toggle('dim', !!(h && h.used>=1));
     wrap.classList.toggle('dim', staleOf(p.snap));
   }
+  placePill();
+  reportHitRegions();
+  if(settingsReady){
+    const states=Object.fromEntries(ps.map(provider=>[provider.id,workState(provider.id)]));
+    for(const alert of alerts.observe(ps,settings,states)) deliverAlert(alert);
+  }
+
 }
 
 function resetCopy(ms){
@@ -281,24 +293,49 @@ function renderCard(){
   c.innerHTML=html;
   placeCard();
 }
-// The card follows the hovered cell: vertically centred on it (kept inside the window), tail pointing at it
+function logicalRect(element){
+  const root=document.querySelector('#root');
+  const bounds=root.getBoundingClientRect(), rectangle=element.getBoundingClientRect();
+  const zoom=bounds.width/root.offsetWidth;
+  return {left:(rectangle.left-bounds.left)/zoom,top:(rectangle.top-bounds.top)/zoom,width:rectangle.width/zoom,height:rectangle.height/zoom};
+}
+
+function positionElement(element, position){
+  Object.assign(element.style,{left:position.left+'px',top:position.top+'px',right:'auto',bottom:'auto'});
+}
+
+function placePill(){
+  const root=document.querySelector('#root');
+  const viewport={width:root.clientWidth,height:root.clientHeight};
+  const size=logicalRect(pill);
+  positionElement(pill,NotchGeometry.pill({edge:settings.edge,ratio:settings.notch_y??0.5,viewport,size}));
+}
+
+function sizeRoot(){
+  const root=document.querySelector('#root');
+  root.style.zoom=String(settings.scale);
+  root.style.width=(innerWidth/settings.scale)+'px';
+  root.style.height=(innerHeight/settings.scale)+'px';
+}
+
 function placeCard(){
+  const root=document.querySelector('#root');
+  const viewport={width:root.clientWidth,height:root.clientHeight};
+  const strip=logicalRect(pill), horizontal=['top','bottom'].includes(settings.edge);
+  card.style.maxHeight=Math.max(0,viewport.height-(horizontal?strip.height+28:16))+'px';
   const cell=pill.querySelector(`.cell[data-p="${CSS.escape(hoverId)}"]`)||pill;
-  const cr=cell.getBoundingClientRect();
-  const cy=cr.top+cr.height/2;
-  const H=innerHeight, ch=card.offsetHeight||0;
-  let top=Math.round(cy-ch/2); top=Math.max(8,Math.min(top,H-ch-8));
-  card.style.top=top+'px'; card.style.transform='none';
-  card.style.setProperty('--tail',Math.max(16,Math.min(ch-16,Math.round(cy-top)))+'px');
+  const size=logicalRect(card);
+  positionElement(card,NotchGeometry.card({edge:settings.edge,viewport,pill:strip,cell:logicalRect(cell),size}));
+  reportHitRegions();
 }
 
 function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML.replace(/"/g,'&quot;');}
 
 /* Hover: stays expanded while either the pill or the card is under the cursor; collapses after a 250 ms grace period (upstream motion rule) */
 const card=document.getElementById('card'), pill=document.getElementById('pill');
-let hideTimer=null;
+let hideTimer=null, peekTimer=null, peekUntil=0;
 function showCard(){clearTimeout(hideTimer);card.classList.add('show');renderCard();armWatchdog();} // show first, then render: placeCard needs offsetHeight
-function hideCard(){card.classList.remove('show');invoke('set_expanded',{on:false,rects:null}).catch(()=>{});}
+function hideCard(){if(Date.now()<peekUntil)return;card.classList.remove('show');reportHitRegions();invoke('set_expanded',{on:false,rects:null}).catch(()=>{});}
 function scheduleHide(){clearTimeout(hideTimer);hideTimer=setTimeout(hideCard,250);}
 // ===== Diagnostics + geometry =====
 function jslog(m){invoke('log_js',{msg:String(m)}).catch(()=>{});}
@@ -307,9 +344,20 @@ function callq(cmd,args){ // invoke with visible failure: any command error is r
 }
 // Hot rectangles are reported in physical pixels (multiplied by this page's real DPR), so the Rust side does no conversion — WebView2's DPR and the window scale can disagree
 function rectOf(el){const r=el.getBoundingClientRect(),k=window.devicePixelRatio||1;return [r.left*k,r.top*k,r.width*k,r.height*k];}
+let lastHitRegions='';
+function reportHitRegions(){
+  const elements=[pill,document.querySelector('#settings-button')];
+  if(card.classList.contains('show'))elements.push(card);
+  if(document.querySelector('#notice').classList.contains('show'))elements.push(document.querySelector('#notice'));
+  const rects=elements.map(rectOf), signature=JSON.stringify(rects);
+  if(signature===lastHitRegions)return;
+  lastHitRegions=signature;
+  invoke('set_hit_regions',{rects}).catch(error=>notice('Could not update window interaction: '+error));
+}
 function armWatchdog(){
   requestAnimationFrame(()=>{ // wait one frame so renderCard's new content is laid out before measuring
     if(!card.classList.contains('show'))return;
+    reportHitRegions();
     callq('set_expanded',{on:true,rects:[rectOf(pill),rectOf(card)]}).catch(()=>{});
   });
 }
@@ -322,7 +370,7 @@ function reportDpr(){
   callq('report_dpr',{dpr:window.devicePixelRatio||1,w:innerWidth,h:innerHeight}).catch(()=>{});
 }
 reportDpr();
-window.addEventListener('resize',()=>{clearTimeout(window._dprT);window._dprT=setTimeout(()=>{reportDpr();if(card.classList.contains('show'))armWatchdog();},120);});
+window.addEventListener('resize',()=>{clearTimeout(window._dprT);window._dprT=setTimeout(()=>{reportDpr();sizeRoot();placePill();reportHitRegions();if(card.classList.contains('show')){placeCard();armWatchdog();}},120);});
 matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`).addEventListener('change',reportDpr);
 
 /* Collapse test: no trust in element-level mouseenter/mouseleave/e.target at all —
@@ -382,7 +430,18 @@ listen('drag_end',()=>{dragging=false;press=null;}).catch(()=>{});
 function notice(msg){
   const n=document.getElementById('notice');
   n.textContent=msg;n.classList.add('show');
-  clearTimeout(n._h);n._h=setTimeout(()=>n.classList.remove('show'),6000);
+  reportHitRegions();
+  clearTimeout(n._h);n._h=setTimeout(()=>{n.classList.remove('show');reportHitRegions();},6000);
+}
+
+function deliverAlert(alert){
+  if(alert.kind==='session'&&settings.sounds) invoke('play_session_sound',{provider:alert.provider}).catch(error=>notice(String(error)));
+  if(alert.kind==='session'&&!settings.announce_completion)return;
+  notice(alert.message);
+  if(!settings.peek_seconds||dragging)return;
+  hoverId=alert.provider; pill.querySelector(`.cell[data-p="${CSS.escape(hoverId)}"]`)?.scrollIntoView({block:'nearest',inline:'nearest'}); peekUntil=Date.now()+settings.peek_seconds*1000;
+  showCard(); clearTimeout(peekTimer);
+  peekTimer=setTimeout(()=>{peekUntil=0;hideCard();},settings.peek_seconds*1000);
 }
 
 listen('usage',e=>{usage=e.payload||usage;renderRing();if(card.classList.contains('show'))renderCard();})
@@ -403,10 +462,10 @@ invoke('get_codex').then(u=>{codexSnap=u||codexSnap;renderRing();}).catch(()=>{}
 invoke('get_usage').then(u=>{usage=u||usage;renderRing();}).catch(e=>notice('get_usage failed: '+e));
 invoke('get_state').then(s=>{stateSnap=s||stateSnap;renderRing();}).catch(()=>{});
 function applySettings(next){
-  settings=next; document.body.dataset.edge=next.edge;
+  settings=next; settingsReady=true; document.body.dataset.edge=next.edge;
+  if(next.disabled_providers.includes(hoverId)){peekUntil=0;hideCard();}
   document.documentElement.style.setProperty('--notch-scale',next.scale);
-  const root=document.querySelector('#root');
-  root.style.zoom=String(next.scale); root.style.width=(100/next.scale)+'%'; root.style.height=(100/next.scale)+'%';
+  sizeRoot();
   document.documentElement.style.setProperty('--notch-offset',(next.notch_y*100)+'%');
   renderRing(); if(card.classList.contains('show'))renderCard();
 }

@@ -225,28 +225,59 @@ pub fn commandcode() -> Result<Vec<LimitWindow>, Failure> {
     let org = whoami["org"]["id"]
         .as_str()
         .ok_or(Failure::Invalid("Command Code organization is missing."))?;
-    let mut query = tauri::Url::parse("https://api.commandcode.ai")
-        .map_err(|_| Failure::Invalid("Invalid API URL."))?;
-    query.query_pairs_mut().append_pair("orgId", org);
-    let query = query.query().unwrap_or("");
+    let query = command_query(org, &Value::Null)?;
     let credits = command_get(&format!("/billing/credits?{query}"), &token)?;
     let subscriptions = command_get(&format!("/billing/subscriptions?{query}"), &token)?;
-    let period = subscriptions["data"]
+    let subscription = subscriptions.get("data").unwrap_or(&subscriptions);
+    let period = subscription
         .as_array()
         .and_then(|rows| rows.first())
-        .unwrap_or(&subscriptions["data"]);
-    let start = reset(&period["currentPeriodStart"])
-        .ok_or(Failure::Invalid("Command Code billing period is missing."))?;
+        .unwrap_or(subscription);
     let summary = command_get(
-        &format!(
-            "/usage/summary?{query}&since={}",
-            chrono::DateTime::from_timestamp_millis(start as i64)
-                .ok_or(Failure::Invalid("Invalid billing start."))?
-                .to_rfc3339()
-        ),
+        &format!("/usage/summary?{}", command_query(org, period)?),
         &token,
     )?;
     parse_commandcode(&credits, &summary, period)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn billing_query_preserves_organization_and_optional_timestamp() {
+        for (period, expected) in [
+            (serde_json::json!({}), None),
+            (
+                serde_json::json!({"currentPeriodStart":"2026-09-01T00:00:00Z"}),
+                Some("2026-09-01T00:00:00+00:00"),
+            ),
+        ] {
+            let query = command_query("organization +/?&", &period).unwrap();
+            let url = tauri::Url::parse(&format!("https://api.commandcode.ai/?{query}")).unwrap();
+            let pairs: std::collections::HashMap<_, _> = url.query_pairs().collect();
+            assert_eq!(
+                pairs.get("orgId").map(|org| org.as_ref()),
+                Some("organization +/?&")
+            );
+            assert_eq!(pairs.get("since").map(|since| since.as_ref()), expected);
+        }
+    }
+}
+
+fn command_query(org: &str, period: &Value) -> Result<String, Failure> {
+    let mut url = tauri::Url::parse("https://api.commandcode.ai")
+        .map_err(|_| Failure::Invalid("Invalid API URL."))?;
+    url.query_pairs_mut().append_pair("orgId", org);
+    if let Some(start) = reset(&period["currentPeriodStart"]) {
+        let start = i64::try_from(start)
+            .ok()
+            .and_then(chrono::DateTime::from_timestamp_millis)
+            .ok_or(Failure::Invalid("Invalid billing start."))?;
+        url.query_pairs_mut()
+            .append_pair("since", &start.to_rfc3339());
+    }
+    Ok(url.query().unwrap_or("").into())
 }
 
 pub fn parse_commandcode(
