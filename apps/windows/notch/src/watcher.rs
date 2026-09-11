@@ -53,6 +53,8 @@ enum Kind {
 
 struct Trk {
     session: String,
+    /// The Claude profile whose watch root holds the transcript
+    provider: String,
     cwd: String,
     last_append: u64,
     kind: Kind,
@@ -101,7 +103,28 @@ pub fn roots() -> Vec<PathBuf> {
     v
 }
 
-/// Accept only real session transcripts: inside a .claude tree, excluding audit logs and sub-agents
+/// Every watch root with the provider its sessions belong to: the default roots above report as
+/// `claude`, each named profile's own projects folder as that profile's id
+fn provider_roots(profiles: &[crate::providers::profiles::Profile]) -> Vec<(PathBuf, String)> {
+    let mut v: Vec<(PathBuf, String)> = roots().into_iter().map(|root| (root, "claude".to_string())).collect();
+    v.extend(
+        profiles
+            .iter()
+            .filter(|profile| profile.family == "claude")
+            .map(|profile| (profile.root().join("projects"), profile.id.clone())),
+    );
+    v
+}
+
+/// The provider whose watch root holds the transcript
+fn provider_of<'a>(path: &Path, roots: &'a [(PathBuf, String)]) -> Option<&'a str> {
+    roots
+        .iter()
+        .find(|(root, _)| path.starts_with(root))
+        .map(|(_, provider)| provider.as_str())
+}
+
+/// Accept only real session transcripts: inside a .claude (or .claude-<profile>) tree, excluding audit logs and sub-agents
 pub fn is_session_jsonl(p: &Path) -> bool {
     if p.extension().map(|e| e == "jsonl").unwrap_or(false) == false {
         return false;
@@ -116,7 +139,7 @@ pub fn is_session_jsonl(p: &Path) -> bool {
         if s == "subagents" {
             return false;
         }
-        if s == ".claude" {
+        if s == ".claude" || s.starts_with(".claude-") {
             in_claude = true;
         }
     }
@@ -137,7 +160,9 @@ pub fn start(app: AppHandle) {
             let _ = std::fs::write(dir.join("notch").join("watch.log"), "");
         }
         wlog(&format!("watcher started v{}", env!("CARGO_PKG_VERSION")));
-        let mut pending: Vec<PathBuf> = roots();
+        // Profiles are discovered at launch; one created later is watched after Notch relaunches
+        let roots = provider_roots(&app.state::<AppState>().profiles);
+        let mut pending: Vec<PathBuf> = roots.iter().map(|(root, _)| root.clone()).collect();
         let mut watching = 0usize;
         let mut last_retry = std::time::Instant::now();
         pending.retain(|r| {
@@ -151,8 +176,8 @@ pub fn start(app: AppHandle) {
             }
         });
         let mut tracks: HashMap<PathBuf, Trk> = HashMap::new();
-        // Scan as soon as Claude is enabled (at startup or after re-enabling): adopt sessions that were already active
-        let mut rescan_needed = true;
+        // Profiles scanned while enabled; an empty list makes the first tick adopt sessions that were already active
+        let mut scanned_ids: Vec<String> = Vec::new();
         let mut last_scan = std::time::Instant::now();
         // Throttling (this was the system-wide lag): while the desktop app streams, the transcript
         // fires dozens of modify events per second, and each one used to do a 256 KB tail read plus
@@ -182,18 +207,21 @@ pub fn start(app: AppHandle) {
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => return,
             }
-            // A disabled Claude shows no sessions, so its transcripts are not read until it is re-enabled
-            if !crate::providers::enabled(&app, "claude") {
-                dirty.clear();
-                tracks.clear();
-                rescan_needed = true;
-                continue;
-            }
-            if rescan_needed {
-                rescan_needed = false;
+            // A disabled profile shows no sessions, so its transcripts are not read until it is re-enabled;
+            // a newly enabled one is rescanned at once to adopt sessions that were already active
+            let live: Vec<(PathBuf, String)> = roots
+                .iter()
+                .filter(|(_, provider)| crate::providers::enabled(&app, provider))
+                .cloned()
+                .collect();
+            dirty.retain(|p| provider_of(p, &live).is_some());
+            tracks.retain(|_, t| live.iter().any(|(_, provider)| *provider == t.provider));
+            let live_ids: Vec<String> = live.iter().map(|(_, provider)| provider.clone()).collect();
+            if live_ids.iter().any(|id| !scanned_ids.contains(id)) {
                 last_scan = std::time::Instant::now();
-                rescan(&app, &mut tracks);
+                rescan(&app, &mut tracks, &live);
             }
+            scanned_ids = live_ids;
             if !dirty.is_empty() {
                 let now = std::time::Instant::now();
                 let due: Vec<PathBuf> = dirty
@@ -209,7 +237,9 @@ pub fn start(app: AppHandle) {
                 for p in due {
                     dirty.remove(&p);
                     last_ingest.insert(p.clone(), now);
-                    ingest(&app, &mut tracks, &p);
+                    if let Some(provider) = provider_of(&p, &live) {
+                        ingest(&app, &mut tracks, &p, provider);
+                    }
                 }
                 if last_ingest.len() > 512 {
                     last_ingest.retain(|_, t| now.duration_since(*t) < Duration::from_secs(600));
@@ -219,7 +249,7 @@ pub fn start(app: AppHandle) {
             // Periodic self-healing rescan: new session directories, and a safety net for missed notify events
             if last_scan.elapsed() > Duration::from_secs(RESCAN_SECS) {
                 last_scan = std::time::Instant::now();
-                rescan(&app, &mut tracks);
+                rescan(&app, &mut tracks, &live);
             }
             // Roots that do not exist yet are retried every 60 s (e.g. the CLI has never run)
             if !pending.is_empty() && last_retry.elapsed() > Duration::from_secs(60) {
@@ -320,8 +350,8 @@ pub fn tail_entry(path: &Path) -> Option<serde_json::Value> {
     tail_info(path).map(|t| t.entry)
 }
 
-/// Updates the tracking info and pushes running
-fn ingest(app: &AppHandle, tracks: &mut HashMap<PathBuf, Trk>, path: &Path) {
+/// Updates the tracking info and pushes running, under the profile whose watch root holds the file
+fn ingest(app: &AppHandle, tracks: &mut HashMap<PathBuf, Trk>, path: &Path, provider: &str) {
     let Some(info) = tail_info(path) else {
         return;
     };
@@ -375,6 +405,7 @@ fn ingest(app: &AppHandle, tracks: &mut HashMap<PathBuf, Trk>, path: &Path) {
             .unwrap_or(false);
     let t = tracks.entry(path.to_path_buf()).or_insert(Trk {
         session: session.clone(),
+        provider: provider.to_string(),
         cwd: cwd.clone(),
         last_append: 0,
         kind,
@@ -420,15 +451,17 @@ fn walk(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
     }
 }
 
-fn rescan(app: &AppHandle, tracks: &mut HashMap<PathBuf, Trk>) {
+fn rescan(app: &AppHandle, tracks: &mut HashMap<PathBuf, Trk>, roots: &[(PathBuf, String)]) {
     let now = now_ms();
     let mut found = Vec::new();
-    for r in roots() {
-        if r.exists() {
-            walk(&r, 0, &mut found);
+    for (root, provider) in roots {
+        if root.exists() {
+            let mut files = Vec::new();
+            walk(root, 0, &mut files);
+            found.extend(files.into_iter().map(|file| (file, provider.as_str())));
         }
     }
-    for p in found {
+    for (p, provider) in found {
         let Some(mtime) = std::fs::metadata(&p)
             .and_then(|m| m.modified())
             .ok()
@@ -442,7 +475,7 @@ fn rescan(app: &AppHandle, tracks: &mut HashMap<PathBuf, Trk>) {
         }
         let known = tracks.get(&p).map(|t| t.last_append).unwrap_or(0);
         if mtime > known {
-            ingest(app, tracks, &p);
+            ingest(app, tracks, &p, provider);
         }
     }
 }
@@ -494,6 +527,7 @@ fn push(app: &AppHandle, e: &str, t: &Trk) {
     let ev = HookEvent {
         e: e.to_string(),
         session_id: t.session.clone(),
+        provider: t.provider.clone(),
         ppid: 0,
         cwd: t.cwd.clone(),
         prompt: t.prompt.clone(),
@@ -510,5 +544,27 @@ fn push(app: &AppHandle, e: &str, t: &Trk) {
     };
     if changed {
         crate::broadcast(app);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn profile_transcripts_are_accepted_and_attributed_to_their_own_root() {
+        let roots = vec![
+            (PathBuf::from("/home/me/.claude/projects"), "claude".to_string()),
+            (PathBuf::from("/home/me/.claude-work/projects"), "claude-work".to_string()),
+        ];
+        let work = Path::new("/home/me/.claude-work/projects/app/session.jsonl");
+        let default = Path::new("/home/me/.claude/projects/app/session.jsonl");
+        assert!(is_session_jsonl(work));
+        assert!(is_session_jsonl(default));
+        assert!(!is_session_jsonl(Path::new("/home/me/.claude-work/projects/app/subagents/a.jsonl")));
+        assert!(!is_session_jsonl(Path::new("/home/me/.claude-work/audit.jsonl")));
+        assert_eq!(provider_of(work, &roots), Some("claude-work"));
+        assert_eq!(provider_of(default, &roots), Some("claude"));
+        assert_eq!(provider_of(Path::new("/home/me/.claude-home/projects/app/x.jsonl"), &roots), None);
     }
 }

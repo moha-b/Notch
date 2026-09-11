@@ -8,7 +8,7 @@
 <button data-pane="providers">Providers</button><button data-pane="appearance">Appearance</button>
 <button data-pane="activity">Activity</button><button data-pane="general">General</button></nav>
 <main>
-<section id="providers"><h2>Providers</h2><p>Notch reads usage from your signed-in tools. Enable only the providers you want to monitor.</p><div id="provider-list"></div>
+<section id="providers"><h2>Providers</h2><p>Notch reads usage from your signed-in tools. Enable only the providers you want to monitor.</p><p class="secondary">Named Claude and Codex profiles (such as ~/.claude-work or ~/.codex-work) are found when Notch starts. Relaunch Notch after creating one, then reinstall hooks from the tray.</p><div id="provider-list"></div>
 <h3>Ollama Cloud</h3><label>API key <input id="ollama-key" type="password" autocomplete="off" spellcheck="false"></label>
 <button id="save-key">Save in Credential Manager</button><button id="delete-key">Remove saved key</button>
 <h3>Gemini API usage</h3><label>Monthly token budget <input type="number" data-setting="gemini_monthly_budget" data-optional min="1" max="9007199254740991" step="1" placeholder="No budget"></label>

@@ -12,7 +12,10 @@ const DEFAULT_PORT: u16 = identity::PORT;
 const MAX_STDIN: u64 = 256 * 1024;
 
 fn main() {
-    let event = std::env::args().nth(1).unwrap_or_else(|| "ping".into());
+    let mut args = std::env::args().skip(1);
+    let event = args.next().unwrap_or_else(|| "ping".into());
+    // Hooks in a named profile's settings add its id; an unexpected value is dropped rather than forwarded
+    let profile = args.next().filter(|id| identity::is_hook_profile_id(id));
 
     // The hook's stdin is the JSON Claude Code provides (session_id / cwd / prompt / message…)
     let mut body = String::new();
@@ -20,15 +23,16 @@ fn main() {
 
     let port = read_port();
     let ppid = parent_pid();
+    let profile = profile.as_deref();
 
-    if send(port, &event, ppid, &body).is_ok() {
+    if send(port, &event, ppid, profile, &body).is_ok() {
         return;
     }
     // Main app not running: launch it detached, then retry briefly
     spawn_main();
     for _ in 0..20 {
         std::thread::sleep(Duration::from_millis(100));
-        if send(port, &event, ppid, &body).is_ok() {
+        if send(port, &event, ppid, profile, &body).is_ok() {
             return;
         }
     }
@@ -57,15 +61,25 @@ fn read_port() -> u16 {
     DEFAULT_PORT
 }
 
-fn send(port: u16, event: &str, ppid: u32, body: &str) -> std::io::Result<()> {
+fn send(
+    port: u16,
+    event: &str,
+    ppid: u32,
+    profile: Option<&str>,
+    body: &str,
+) -> std::io::Result<()> {
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
     let mut s = TcpStream::connect_timeout(&addr, Duration::from_millis(300))?;
     s.set_write_timeout(Some(Duration::from_millis(700)))?;
     s.set_read_timeout(Some(Duration::from_millis(700)))?;
+    let profile = profile
+        .map(|id| format!("&profile={id}"))
+        .unwrap_or_default();
     let req = format!(
-        "POST /event?e={}&ppid={} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        "POST /event?e={}&ppid={}{} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
         event,
         ppid,
+        profile,
         body.len(),
         body
     );

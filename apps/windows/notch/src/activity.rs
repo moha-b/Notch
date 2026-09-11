@@ -32,7 +32,7 @@ const ANTIGRAVITY_STALE_MS: u64 = 45_000;
 
 #[derive(Clone, Serialize, Debug, PartialEq)]
 pub struct Activity {
-    /// Provider id other than claude: codex / cursor / gemini
+    /// Provider id other than a Claude profile: codex / codex-<slug> / cursor / gemini
     pub provider: String,
     /// busy | waiting
     pub state: String,
@@ -112,21 +112,45 @@ impl DbCache {
 /// Everything the probe thread keeps between ticks
 struct Ctx {
     cursor: DbCache,
-    codex_turns: DbCache,
-    codex_names: Option<rusqlite::Connection>,
+    /// `~/.codex` first, then each `~/.codex-<slug>` profile discovered at launch
+    codex: Vec<CodexCtx>,
+}
+
+impl Ctx {
+    fn new(profiles: &[crate::providers::profiles::Profile]) -> Self {
+        let home = dirs::home_dir().unwrap_or_default();
+        let mut codex = vec![CodexCtx::new("codex", "Codex", home.join(".codex"))];
+        codex.extend(
+            profiles
+                .iter()
+                .filter(|profile| profile.family == "codex")
+                .map(|profile| CodexCtx::new(&profile.id, &profile.name, profile.root().to_path_buf())),
+        );
+        Self { cursor: DbCache::new(crate::cursor::store_url().unwrap_or_default()), codex }
+    }
+}
+
+/// One Codex home's desktop turns and CLI rollout, reported under that home's own provider id
+struct CodexCtx {
+    provider: String,
+    name: String,
+    root: std::path::PathBuf,
+    turns: DbCache,
+    names: Option<rusqlite::Connection>,
     rollout_path: Option<std::path::PathBuf>,
     rollout_checked_at: u64,
     rollout_sig: u64,
     rollout_last: Vec<Activity>,
 }
 
-impl Ctx {
-    fn new() -> Self {
-        let home = dirs::home_dir().unwrap_or_default();
+impl CodexCtx {
+    fn new(provider: &str, name: &str, root: std::path::PathBuf) -> Self {
         Self {
-            cursor: DbCache::new(crate::cursor::store_url().unwrap_or_default()),
-            codex_turns: DbCache::new(home.join(".codex").join("thread_history_1.sqlite")),
-            codex_names: None,
+            provider: provider.into(),
+            name: name.into(),
+            turns: DbCache::new(root.join("thread_history_1.sqlite")),
+            root,
+            names: None,
             rollout_path: None,
             rollout_checked_at: 0,
             rollout_sig: 0,
@@ -252,13 +276,14 @@ fn codex_last_step(text: &str) -> Option<(CodexStep, u64)> {
 /// The app maintains this turn table itself, which is far more reliable than a file mtime. Guard
 /// against "inProgress forever after a crash": no new item for the thread in the last 10 minutes
 /// (`thread_items.created_at_ms`) while the turn started more than 2 minutes ago → treated as stale.
-fn codex_turns_in_progress(ctx: &mut Ctx) -> Vec<Activity> {
+fn codex_turns_in_progress(ctx: &mut CodexCtx) -> Vec<Activity> {
     let now = now_ms();
-    if ctx.codex_names.is_none() {
-        ctx.codex_names = dirs::home_dir().and_then(|h| open_ro(&h.join(".codex").join("state_5.sqlite")));
+    if ctx.names.is_none() {
+        ctx.names = open_ro(&ctx.root.join("state_5.sqlite"));
     }
-    let names = ctx.codex_names.as_ref();
-    ctx.codex_turns.refresh(|conn| {
+    let names = ctx.names.as_ref();
+    let (provider, fallback) = (&ctx.provider, &ctx.name);
+    ctx.turns.refresh(|conn| {
         let mut stmt = conn
             .prepare("SELECT thread_id, started_at FROM thread_turns WHERE status = 'inProgress' ORDER BY started_at DESC LIMIT 8")
             .ok()?;
@@ -302,12 +327,12 @@ fn codex_turns_in_progress(ctx: &mut Ctx) -> Vec<Activity> {
                 }
             }
             if name.is_empty() {
-                name = "Codex".into();
+                name = fallback.clone();
             }
             let lt = last_type.unwrap_or_default().to_lowercase();
             let waiting = lt.contains("approval") || lt.contains("permission") || lt.contains("request_user");
             out.push(Activity {
-                provider: "codex".into(),
+                provider: provider.clone(),
                 state: if waiting { "waiting" } else { "busy" }.into(),
                 name,
                 detail: if waiting { "needs your input".into() } else { "Working".into() },
@@ -318,7 +343,7 @@ fn codex_turns_in_progress(ctx: &mut Ctx) -> Vec<Activity> {
     })
 }
 
-fn codex_activity(ctx: &mut Ctx) -> Vec<Activity> {
+fn codex_activity(ctx: &mut CodexCtx) -> Vec<Activity> {
     // 1. The desktop app's real state
     let turns = codex_turns_in_progress(ctx);
     if !turns.is_empty() {
@@ -328,7 +353,7 @@ fn codex_activity(ctx: &mut Ctx) -> Vec<Activity> {
     let now = now_ms();
     if now.saturating_sub(ctx.rollout_checked_at) > 30_000 || ctx.rollout_path.is_none() {
         ctx.rollout_checked_at = now;
-        ctx.rollout_path = crate::codex::newest_rollout();
+        ctx.rollout_path = crate::codex::newest_rollout_in(&ctx.root);
     }
     let Some(p) = ctx.rollout_path.clone() else { return vec![] };
     let mtime = mtime_ms(&p).unwrap_or(0);
@@ -354,7 +379,7 @@ fn codex_activity(ctx: &mut Ctx) -> Vec<Activity> {
                 CodexStep::Aborted => false,
             };
             if busy {
-                ctx.rollout_last = vec![Activity { provider: "codex".into(), state: "busy".into(), name: "Codex".into(), detail: "Working".into(), since: at }];
+                ctx.rollout_last = vec![Activity { provider: ctx.provider.clone(), state: "busy".into(), name: ctx.name.clone(), detail: "Working".into(), since: at }];
             }
         }
     }
@@ -536,14 +561,18 @@ impl Presence {
     }
 }
 
-fn read_all(p: Presence, ctx: &mut Ctx) -> Vec<Activity> {
+fn read_all(p: Presence, ctx: &mut Ctx, app: &AppHandle) -> Vec<Activity> {
     let mut all = Vec::new();
     if p.claude { all.extend(claude_activity()); }
     if p.cursor {
         all.extend(cursor_activity(ctx));
     }
-    if p.codex {
-        all.extend(codex_activity(ctx));
+    // The default home follows the cached presence; a named profile exists by discovery and follows its own toggle
+    for codex in ctx.codex.iter_mut() {
+        let live = if codex.provider == "codex" { p.codex } else { crate::providers::enabled(app, &codex.provider) };
+        if live {
+            all.extend(codex_activity(codex));
+        }
     }
     if p.gemini {
         all.extend(antigravity_activity());
@@ -599,7 +628,8 @@ pub fn lower_thread_priority() {}
 pub fn start(app: AppHandle) {
     std::thread::spawn(move || {
         lower_thread_priority(); // the probe always yields to foreground input
-        let mut ctx = Ctx::new();
+        // Profiles are discovered at launch; one created later is probed after Notch relaunches
+        let mut ctx = Ctx::new(&app.state::<AppState>().profiles);
         let mut last: Vec<Activity> = Vec::new();
         let mut pres = presence(&app);
         let mut tick: u32 = 0;
@@ -609,7 +639,7 @@ pub fn start(app: AppHandle) {
                 pres = presence(&app);
             }
             tick = tick.wrapping_add(1);
-            let found = read_all(pres.still_enabled(&app), &mut ctx);
+            let found = read_all(pres.still_enabled(&app), &mut ctx, &app);
             if found != last {
                 // Log the first 20 state changes (with the Codex raw material) so thresholds can be calibrated
                 static LOGGED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
@@ -626,4 +656,33 @@ pub fn start(app: AppHandle) {
             std::thread::sleep(INTERVAL);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_codex_profile_reports_its_own_rollout_under_its_own_id() {
+        let home = std::env::temp_dir().join(format!("notch-codex-activity-{}-{}", std::process::id(), now_ms()));
+        let work = home.join(".codex-work");
+        let logs = work.join("sessions").join("2026").join("09").join("11");
+        std::fs::create_dir_all(&logs).unwrap();
+        let line = serde_json::json!({
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "type": "event_msg",
+            "payload": {"type": "agent_reasoning"}
+        });
+        std::fs::write(logs.join("rollout-fixture.jsonl"), format!("{line}\n")).unwrap();
+
+        let mut profile = CodexCtx::new("codex-work", "Codex (work)", work);
+        let mut default = CodexCtx::new("codex", "Codex", home.join(".codex"));
+        let found = codex_activity(&mut profile);
+        assert_eq!(
+            found.iter().map(|a| (a.provider.as_str(), a.name.as_str(), a.state.as_str())).collect::<Vec<_>>(),
+            vec![("codex-work", "Codex (work)", "busy")]
+        );
+        assert!(codex_activity(&mut default).is_empty());
+        let _ = std::fs::remove_dir_all(&home);
+    }
 }

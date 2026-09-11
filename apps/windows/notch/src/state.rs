@@ -24,6 +24,8 @@ fn now_ms() -> u64 {
 #[derive(Debug, Clone, Serialize)]
 pub struct Session {
     pub id: String,
+    /// The Claude profile the session runs under: `claude` or a named profile id such as `claude-work`
+    pub provider: String,
     pub title: String,
     pub state: String,
     /// Start of the current activity (ms epoch)
@@ -72,6 +74,8 @@ pub struct Store {
 pub struct HookEvent {
     pub e: String,
     pub session_id: String,
+    /// Which Claude profile reported the event; a session keeps the provider it was first seen under
+    pub provider: String,
     pub ppid: u32,
     pub cwd: String,
     pub prompt: String,
@@ -105,6 +109,14 @@ fn title_of(cwd: &str, id: &str) -> String {
 impl Store {
     pub fn apply(&mut self, ev: HookEvent) -> bool {
         let now = now_ms();
+        // A session id reported under another profile must neither end nor take over this one
+        let owned_by_other = self
+            .map
+            .get(&ev.session_id)
+            .is_some_and(|s| s.provider != ev.provider);
+        if owned_by_other {
+            return false;
+        }
         if ev.e == "session_end" {
             return self.map.remove(&ev.session_id).is_some();
         }
@@ -113,6 +125,7 @@ impl Store {
             .entry(ev.session_id.clone())
             .or_insert_with(|| Session {
                 id: ev.session_id.clone(),
+                provider: ev.provider.clone(),
                 title: title_of(&ev.cwd, &ev.session_id),
                 state: ST_IDLE.into(),
                 started: now,
@@ -276,5 +289,59 @@ impl Store {
             lang_resolved: lang_resolved.to_string(),
             drag,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn event(e: &str, session_id: &str, provider: &str) -> HookEvent {
+        HookEvent {
+            e: e.into(),
+            session_id: session_id.into(),
+            provider: provider.into(),
+            ppid: 0,
+            cwd: String::new(),
+            prompt: String::new(),
+            message: String::new(),
+            tool_name: String::new(),
+            tool_cmd: String::new(),
+            model: String::new(),
+            src: "hook",
+        }
+    }
+
+    fn states(store: &Store) -> Vec<(String, String, String)> {
+        let mut rows: Vec<_> = store
+            .snapshot("en", "en", false)
+            .sessions
+            .into_iter()
+            .map(|s| (s.id, s.provider, s.state))
+            .collect();
+        rows.sort();
+        rows
+    }
+
+    #[test]
+    fn profiles_keep_their_own_sessions_and_cannot_take_over_each_other() {
+        let mut store = Store::default();
+        assert!(store.apply(event("running", "default-session", "claude")));
+        assert!(store.apply(event("attention", "work-session", "claude-work")));
+        assert!(!store.apply(event("done", "work-session", "claude")));
+        assert!(!store.apply(event("session_end", "default-session", "claude-work")));
+        assert_eq!(
+            states(&store),
+            vec![
+                ("default-session".into(), "claude".into(), ST_RUNNING.into()),
+                (
+                    "work-session".into(),
+                    "claude-work".into(),
+                    ST_ATTENTION.into()
+                ),
+            ]
+        );
+        assert!(store.apply(event("session_end", "work-session", "claude-work")));
+        assert_eq!(states(&store).len(), 1);
     }
 }

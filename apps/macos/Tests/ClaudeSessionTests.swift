@@ -252,3 +252,46 @@ extension ClaudeSessionRecordTests {
         XCTAssertEqual(first.since.timeIntervalSince1970, 1788731755.247, accuracy: 0.01)
     }
 }
+
+/// Each profile's monitor reads only its own `sessions` directory, so a work
+/// session can never spin the default ring, or the other way round.
+@MainActor
+final class ClaudeProfileSessionIsolationTests: XCTestCase {
+    private var home: URL!
+
+    override func setUpWithError() throws {
+        home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("profiles-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: home)
+    }
+
+    /// A live record: the test process's own pid, with no start time to contradict it.
+    private func register(_ name: String, in profile: ClaudeProfile) throws {
+        try FileManager.default.createDirectory(at: profile.sessionsDirectory,
+                                                withIntermediateDirectories: true)
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let json = #"{ "pid": \#(pid), "sessionId": "\#(name)", "cwd": "/tmp/\#(name)", "name": "\#(name)", "status": "busy" }"#
+        try Data(json.utf8).write(to: profile.sessionsDirectory.appendingPathComponent("\(pid).json"))
+    }
+
+    func testEachProfileSeesOnlyItsOwnSessions() throws {
+        let personal = ClaudeProfile.default(home: home)
+        let work = ClaudeProfile(slug: "work",
+                                 configDirectory: home.appendingPathComponent(".claude-work"))
+        let client = ClaudeProfile(slug: "client",
+                                   configDirectory: home.appendingPathComponent(".claude-client"))
+        try register("personal", in: personal)
+        try register("work", in: work)
+
+        XCTAssertEqual(ClaudeSessionMonitor.read(directory: personal.sessionsDirectory).map(\.name),
+                       ["personal"])
+        XCTAssertEqual(ClaudeSessionMonitor.read(directory: work.sessionsDirectory).map(\.name),
+                       ["work"])
+        XCTAssertEqual(ClaudeSessionMonitor.read(directory: client.sessionsDirectory), [])
+        XCTAssertEqual([personal.id, work.id], ["claude", "claude-work"])
+    }
+}

@@ -10,6 +10,13 @@ pub struct Profile {
     root: PathBuf,
 }
 
+impl Profile {
+    /// The profile's own configuration directory, such as `~/.claude-work`.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+}
+
 pub fn discover() -> Result<Vec<Profile>, Failure> {
     discover_in(&home()?)
 }
@@ -192,6 +199,45 @@ mod tests {
             Err(Failure::NeedsAuth)
         ));
         assert_eq!(claude_token(&profiles[1].root).unwrap(), "work-fixture");
+        std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[test]
+    fn profiles_created_after_launch_wait_for_the_next_discovery() {
+        let directory = std::env::temp_dir().join(format!(
+            "notch-late-profile-{}-{}",
+            std::process::id(),
+            super::super::now_ms()
+        ));
+        let create = |slug: &str| {
+            let profile = directory.join(format!(".claude-{slug}"));
+            std::fs::create_dir_all(&profile).unwrap();
+            std::fs::write(profile.join(".credentials.json"), "{}").unwrap();
+        };
+        let ids = |profiles: &[Profile]| profiles.iter().map(|p| p.id.clone()).collect::<Vec<_>>();
+        create("work");
+        let at_launch = discover_in(&directory).unwrap();
+        create("late");
+        assert_eq!(ids(&at_launch), vec!["claude-work"]);
+        let relaunched = discover_in(&directory).unwrap();
+        assert_eq!(ids(&relaunched), vec!["claude-late", "claude-work"]);
+
+        let mut onboarded = Config {
+            onboarding_complete: true,
+            ..Config::default()
+        };
+        reconcile(&mut onboarded, &relaunched);
+        assert!(onboarded
+            .provider_order
+            .contains(&"claude-late".to_string()));
+        assert!(!onboarded
+            .disabled_providers
+            .contains(&"claude-late".to_string()));
+        let mut first_run = Config::default();
+        reconcile(&mut first_run, &relaunched);
+        assert!(first_run
+            .disabled_providers
+            .contains(&"claude-late".to_string()));
         std::fs::remove_dir_all(&directory).unwrap();
     }
 

@@ -108,6 +108,7 @@
   <div id="notice"></div>
 </div>
 <script src="alerts.js"></script>
+<script src="sessions.js"></script>
 <script src="geometry.js"></script>
 <script src="usage-pace.js"></script>
 <script>
@@ -130,21 +131,8 @@ let settingsReady=false;
 const alerts=new NotchAlerts();
 let glyphs={}; // id → {kind:'mark'|'appicon', url}
 let activity=[]; // working state of the non-Claude providers: {provider,state:'busy'|'waiting',name,detail,since}
-// "Is it working?" per provider: Claude from the four-state engine, the others from the activity probe. Returns running | attention | idle
-function workState(id){
-  if(id==='claude'){
-    if(stateSnap.agg==='running') return 'running';
-    if(stateSnap.agg==='attention') return 'attention';
-    if(stateSnap.agg==='done') return 'done';
-    // The engine cannot see cloud sessions: fall back to the desktop app's network activity
-    if(activity.some(a=>a.provider==='claude'&&a.state==='busy')) return 'running';
-    return 'idle';
-  }
-  const acts=activity.filter(a=>a.provider===(id==='antigravity'?'gemini':id));
-  if(acts.some(a=>a.state==='waiting')) return 'attention';
-  if(acts.some(a=>a.state==='busy')) return 'running';
-  return 'idle';
-}
+// "Is it working?" per provider id; each Claude profile reads only its own sessions (sessions.js). Returns running | attention | done | idle
+function workState(id){ return NotchSessions.workState(id,stateSnap,activity); }
 function glyphHtml(p,small){
   const g=glyphs[p.id];
   if(g&&g.kind==='svg'&&g.svg) return `<span class="mark">${g.svg}</span>`;
@@ -277,8 +265,8 @@ function renderCard(){
     }
     if(snap.note) html+=`<div class="c-note">${esc(snap.note)}</div>`;
   }
-  if(p.id==='claude'){ // live sessions (a full list with jump-to-session is a follow-up)
-    const act=stateSnap.sessions.filter(s=>s.state!=='idle');
+  if(NotchSessions.isClaude(p.id)){ // this profile's own live sessions (a full list with jump-to-session is a follow-up)
+    const act=NotchSessions.sessionsOf(p.id,stateSnap).filter(s=>s.state!=='idle');
     if(act.length){
       html+=`<div class="c-sessions">`;
       for(const s of act.slice(0,5)){
