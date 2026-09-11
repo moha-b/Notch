@@ -151,7 +151,8 @@ pub fn start(app: AppHandle) {
             }
         });
         let mut tracks: HashMap<PathBuf, Trk> = HashMap::new();
-        rescan(&app, &mut tracks); // scan once at startup: adopt sessions that were already active
+        // Scan as soon as Claude is enabled (at startup or after re-enabling): adopt sessions that were already active
+        let mut rescan_needed = true;
         let mut last_scan = std::time::Instant::now();
         // Throttling (this was the system-wide lag): while the desktop app streams, the transcript
         // fires dozens of modify events per second, and each one used to do a 256 KB tail read plus
@@ -180,6 +181,18 @@ pub fn start(app: AppHandle) {
                 Ok(Err(_)) => {}
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => return,
+            }
+            // A disabled Claude shows no sessions, so its transcripts are not read until it is re-enabled
+            if !crate::providers::enabled(&app, "claude") {
+                dirty.clear();
+                tracks.clear();
+                rescan_needed = true;
+                continue;
+            }
+            if rescan_needed {
+                rescan_needed = false;
+                last_scan = std::time::Instant::now();
+                rescan(&app, &mut tracks);
             }
             if !dirty.is_empty() {
                 let now = std::time::Instant::now();
