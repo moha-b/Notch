@@ -309,14 +309,23 @@ pub fn start(app: AppHandle) {
                     u.note = "No Claude Code credential found".into();
                 }),
                 Some((token, expired)) => {
+                    // Disabling Claude mid-request stops further credential reads and discards the reply
+                    let disabled = || !crate::providers::enabled(&app, "claude");
+                    let first = fetch_once(&token);
+                    if disabled() {
+                        continue;
+                    }
                     // On 401/403 re-read the credential and retry once (Claude Code may have just refreshed it)
-                    let result = match fetch_once(&token) {
+                    let result = match first {
                         Err(FetchErr::NeedsAuth) => match read_credentials() {
                             Some((t2, _)) if t2 != token => fetch_once(&t2),
                             _ => Err(FetchErr::NeedsAuth),
                         },
                         other => other,
                     };
+                    if disabled() {
+                        continue;
+                    }
                     let auth_note = if expired {
                         "Credential expired — run any claude command (or chat with Claude) to refresh it"
                     } else {

@@ -528,6 +528,14 @@ fn presence(app: &AppHandle) -> Presence {
     Presence { claude: crate::providers::enabled(app, "claude"), cursor: crate::providers::enabled(app, "cursor") && crate::cursor::present(), codex: crate::providers::enabled(app, "codex") && crate::codex::present(), gemini: crate::providers::enabled(app, "antigravity") && crate::antigravity::present() }
 }
 
+impl Presence {
+    /// Presence is cached for a minute, but a provider disabled since then must stop being read on the next tick
+    fn still_enabled(self, app: &AppHandle) -> Presence {
+        let enabled = |id| crate::providers::enabled(app, id);
+        Presence { claude: self.claude && enabled("claude"), cursor: self.cursor && enabled("cursor"), codex: self.codex && enabled("codex"), gemini: self.gemini && enabled("antigravity") }
+    }
+}
+
 fn read_all(p: Presence, ctx: &mut Ctx) -> Vec<Activity> {
     let mut all = Vec::new();
     if p.claude { all.extend(claude_activity()); }
@@ -601,7 +609,7 @@ pub fn start(app: AppHandle) {
                 pres = presence(&app);
             }
             tick = tick.wrapping_add(1);
-            let found = read_all(pres, &mut ctx);
+            let found = read_all(pres.still_enabled(&app), &mut ctx);
             if found != last {
                 // Log the first 20 state changes (with the Codex raw material) so thresholds can be calibrated
                 static LOGGED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
