@@ -11,6 +11,8 @@
 <section id="providers"><h2>Providers</h2><p>Notch reads usage from your signed-in tools. Enable only the providers you want to monitor.</p><div id="provider-list"></div>
 <h3>Ollama Cloud</h3><label>API key <input id="ollama-key" type="password" autocomplete="off" spellcheck="false"></label>
 <button id="save-key">Save in Credential Manager</button><button id="delete-key">Remove saved key</button>
+<h3>Gemini API usage</h3><label>Monthly token budget <input type="number" data-setting="gemini_monthly_budget" data-optional min="1" max="9007199254740991" step="1" placeholder="No budget"></label>
+<p class="secondary">Optional personal budget, not a Google limit. Leave blank to show token counts. Totals come from local Gemini CLI, OpenCode and Hermes logs.</p>
 <p class="secondary">Borrowed credentials remain read-only. Gemini usage comes from local logs; API secrets are never read.</p></section>
 <section id="appearance" hidden><h2>Appearance</h2>
 <label>Screen edge <select data-setting="edge"><option>right</option><option>left</option><option>top</option><option>bottom</option></select></label>

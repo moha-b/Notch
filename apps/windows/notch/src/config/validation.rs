@@ -5,6 +5,12 @@ impl Config {
     pub fn validate(&self) -> Result<(), String> {
         self.validate_appearance()?;
         self.validate_providers()?;
+        if self
+            .gemini_monthly_budget
+            .is_some_and(|budget| budget == 0 || budget > 9_007_199_254_740_991)
+        {
+            return Err("Gemini budget must be a positive whole token count, or blank.".into());
+        }
         if self.peek_seconds > 60 {
             return Err("Peek duration must be at most 60 seconds.".into());
         }
@@ -97,6 +103,8 @@ mod tests {
             json!({"reset_format":"bad"}),
             json!({"peek_seconds":61}),
             json!({"port":0}),
+            json!({"gemini_monthly_budget":0}),
+            json!({"gemini_monthly_budget":9007199254740992u64}),
             json!({"provider_order":["claude","claude"]}),
         ] {
             assert!(
@@ -105,6 +113,8 @@ mod tests {
             );
         }
         assert!(super::super::decode(br#"{"scale":0.5,"notch_y":0}"#).is_ok());
+        assert!(super::super::decode(br#"{"gemini_monthly_budget":null}"#).is_ok());
+        assert!(super::super::decode(br#"{"gemini_monthly_budget":1000000}"#).is_ok());
         assert!(super::super::decode(br#"{"scale":2,"notch_y":1,"peek_seconds":60}"#).is_ok());
     }
 

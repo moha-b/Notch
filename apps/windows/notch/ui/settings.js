@@ -44,16 +44,23 @@ function renderProviders() {
 function renderSettings() {
   document.querySelectorAll('[data-setting]').forEach(input => {
     const setting = settings[input.dataset.setting];
-    if (input.type === 'checkbox') input.checked = setting; else input.value = setting;
+    if (input.type === 'checkbox') input.checked = setting; else input.value = setting ?? '';
   });
   document.querySelector('#display').value = settings.display || '';
   renderProviders();
 }
 
+function inputValue(input) {
+  if (input.type === 'checkbox') return input.checked;
+  if (input.hasAttribute('data-optional') && input.value === '') return null;
+  return ['range', 'number'].includes(input.type) ? Number(input.value) : input.value;
+}
+
 async function saveSettings() {
+  const invalid = [...document.querySelectorAll('input[type=number]')].find(input => !input.checkValidity());
+  if (invalid) { invalid.reportValidity(); throw new Error('Check the highlighted setting.'); }
   document.querySelectorAll('[data-setting]').forEach(input => {
-    settings[input.dataset.setting] = input.type === 'checkbox' ? input.checked
-      : ['range', 'number'].includes(input.type) ? Number(input.value) : input.value;
+    settings[input.dataset.setting] = inputValue(input);
   });
   settings.display = document.querySelector('#display').value || null;
   settings.onboarding_complete = true;

@@ -40,7 +40,6 @@ const ADAPTERS: &[(&str, Fetch)] = &[
     ("copilot", cloud::copilot),
     ("ollama", cloud::ollama),
     ("ollama-local", cloud::ollama_local),
-    ("gemini-api", gemini::read),
 ];
 
 #[derive(Debug)]
@@ -66,6 +65,18 @@ pub fn enabled(app: &AppHandle, id: &str) -> bool {
 }
 
 pub fn start(app: AppHandle) {
+    let gemini_app = app.clone();
+    std::thread::spawn(move || {
+        poll(gemini_app.clone(), "gemini-api", || {
+            let budget = gemini_app
+                .state::<AppState>()
+                .cfg
+                .lock()
+                .unwrap()
+                .gemini_monthly_budget;
+            gemini::read(budget).map(fresh_snapshot)
+        })
+    });
     for &(id, fetch) in ADAPTERS {
         let app = app.clone();
         std::thread::spawn(move || poll(app, id, || fetch().map(fresh_snapshot)));

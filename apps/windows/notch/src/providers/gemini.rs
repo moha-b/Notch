@@ -1,22 +1,38 @@
-use super::{count_window, home, Failure};
+use super::{home, Failure};
 use crate::usage::LimitWindow;
-use chrono::{Datelike, Local, TimeZone};
+use chrono::{DateTime, Datelike, Local, TimeZone};
 use serde_json::Value;
-use std::{collections::BTreeMap, path::Path};
+use std::{
+    collections::BTreeMap,
+    io::BufRead,
+    path::{Path, PathBuf},
+};
 
-#[derive(Default)]
+#[cfg(test)]
+mod database_tests;
+mod summary;
+
 struct Totals {
+    now: DateTime<Local>,
     today: i64,
     month: i64,
     calls: i64,
 }
 
 impl Totals {
+    fn new(now: &DateTime<Local>) -> Self {
+        Self {
+            now: *now,
+            today: 0,
+            month: 0,
+            calls: 0,
+        }
+    }
     fn add(&mut self, timestamp: i64, tokens: i64, calls: i64) {
         let Some(at) = Local.timestamp_millis_opt(timestamp).single() else {
             return;
         };
-        let now = Local::now();
+        let now = &self.now;
         if tokens <= 0 || (at.year(), at.month()) != (now.year(), now.month()) {
             return;
         }
@@ -28,101 +44,121 @@ impl Totals {
     }
 }
 
-pub fn read() -> Result<Vec<LimitWindow>, Failure> {
+pub fn read(budget: Option<u64>) -> Result<Vec<LimitWindow>, Failure> {
     let home = home()?;
-    let sources = [
-        ("Gemini CLI", cli(&home.join(".gemini/tmp"))?),
+    let now = Local::now();
+    let readings = [
+        ("cli", "Gemini CLI", cli(&home.join(".gemini/tmp"), &now)?),
         (
+            "opencode",
             "OpenCode",
-            opencode(&home.join(".local/share/opencode/opencode.db"))?,
+            opencode(
+                &super::credentials::opencode_directory()?.join("opencode.db"),
+                &now,
+            )?,
         ),
-        ("Hermes", hermes(&home.join(".hermes/state.db"))?),
+        (
+            "hermes",
+            "Hermes",
+            hermes(&home.join(".hermes/state.db"), &now)?,
+        ),
     ];
-    let mut windows = Vec::new();
-    for (name, totals) in sources {
-        if let Some(totals) = totals {
-            windows.push(count_window(
-                &format!("{name} · tokens this month"),
-                totals.month,
-            ));
-            windows.push(count_window(
-                &format!("{name} · tokens today"),
-                totals.today,
-            ));
-            windows.push(count_window(
-                &format!("{name} · calls this month"),
-                totals.calls,
-            ));
-        }
-    }
-    if windows.is_empty() {
+    // A missing tool is not a zero reading, so it gets no row at all.
+    let sources: Vec<_> = readings
+        .into_iter()
+        .filter_map(|(id, name, totals)| totals.map(|totals| summary::Source { id, name, totals }))
+        .collect();
+    if sources.is_empty() {
         return Err(Failure::Unavailable(
             "No Gemini usage logs found. API keys are never read.".into(),
         ));
     }
-    Ok(windows)
+    summary::windows(&sources, budget, &now)
 }
 
-fn cli(root: &Path) -> Result<Option<Totals>, Failure> {
+fn cli(root: &Path, now: &DateTime<Local>) -> Result<Option<Totals>, Failure> {
     if !root.exists() {
         return Ok(None);
     }
-    let mut totals = Totals::default();
-    let projects = std::fs::read_dir(root)
-        .map_err(|_| Failure::Unavailable("Cannot read Gemini logs.".into()))?;
-    for project in projects {
-        let project =
-            project.map_err(|_| Failure::Unavailable("Cannot read Gemini project.".into()))?;
+    let (month_start, _) = summary::month_bounds(now)?;
+    let mut totals = Totals::new(now);
+    for log in current_session_logs(root, month_start)? {
+        let file = std::fs::File::open(log)
+            .map_err(|_| Failure::Unavailable("Cannot read Gemini session log.".into()))?;
+        read_cli_records(&mut totals, std::io::BufReader::new(file))?;
+    }
+    Ok(Some(totals))
+}
+
+/// Session logs are append-only, so a file last written before this month holds none of its records.
+fn current_session_logs(root: &Path, month_start: i64) -> Result<Vec<PathBuf>, Failure> {
+    let mut logs = Vec::new();
+    for project in directory_entries(root, "Cannot read Gemini logs.")? {
         let chats = project.path().join("chats");
         if !chats.is_dir() {
             continue;
         }
-        for session in std::fs::read_dir(chats)
-            .map_err(|_| Failure::Unavailable("Cannot read Gemini chats.".into()))?
-        {
-            let session =
-                session.map_err(|_| Failure::Unavailable("Cannot read Gemini session.".into()))?;
-            if session
-                .path()
+        for session in directory_entries(&chats, "Cannot read Gemini chats.")? {
+            let path = session.path();
+            if path
                 .extension()
                 .is_none_or(|extension| extension != "jsonl")
             {
                 continue;
             }
-            let text = std::fs::read_to_string(session.path())
-                .map_err(|_| Failure::Unavailable("Cannot read Gemini session log.".into()))?;
-            add_cli_records(&mut totals, &text);
+            let modified = session
+                .metadata()
+                .and_then(|metadata| metadata.modified())
+                .map_err(|_| Failure::Unavailable("Cannot inspect Gemini session log.".into()))?;
+            if DateTime::<chrono::Utc>::from(modified).timestamp_millis() >= month_start {
+                logs.push(path);
+            }
         }
     }
-    Ok(Some(totals))
+    Ok(logs)
 }
 
-fn add_cli_records(totals: &mut Totals, text: &str) {
+fn directory_entries(path: &Path, failure: &str) -> Result<Vec<std::fs::DirEntry>, Failure> {
+    std::fs::read_dir(path)
+        .and_then(|entries| entries.collect())
+        .map_err(|_| Failure::Unavailable(failure.into()))
+}
+
+fn read_cli_records(totals: &mut Totals, reader: impl BufRead) -> Result<(), Failure> {
     let mut completed = BTreeMap::new();
-    for line in text.lines() {
+    for line in reader.lines() {
+        let line =
+            line.map_err(|_| Failure::Unavailable("Cannot read Gemini log record.".into()))?;
         // A live append-only log may end with a partial record; the next poll reads it again.
-        let Ok(record) = serde_json::from_str::<Value>(line) else {
+        let Ok(record) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
         if record["type"] != "gemini" || !record["tokens"].is_object() {
             continue;
         }
         if let Some(id) = record["id"].as_str() {
-            completed.insert(id.to_owned(), record);
-        }
-    }
-    for record in completed.values() {
-        if let Some(timestamp) = super::reset(&record["timestamp"]) {
-            totals.add(
-                timestamp as i64,
-                record["tokens"]["total"].as_i64().unwrap_or(0),
-                1,
+            completed.insert(
+                id.to_owned(),
+                (
+                    super::reset(&record["timestamp"]),
+                    record["tokens"]["total"].as_i64().unwrap_or(0),
+                ),
             );
         }
     }
+    for (timestamp, tokens) in completed.values() {
+        if let Some(timestamp) = timestamp.and_then(|stamp| i64::try_from(stamp).ok()) {
+            totals.add(timestamp, *tokens, 1);
+        }
+    }
+    Ok(())
 }
 
-fn database_totals(path: &Path, sql: &str) -> Result<Option<Totals>, Failure> {
+fn database_totals(
+    path: &Path,
+    sql: &str,
+    now: &DateTime<Local>,
+) -> Result<Option<Totals>, Failure> {
     if !path.exists() {
         return Ok(None);
     }
@@ -134,8 +170,9 @@ fn database_totals(path: &Path, sql: &str) -> Result<Option<Totals>, Failure> {
     let mut query = connection
         .prepare(sql)
         .map_err(|_| Failure::Invalid("Gemini usage database schema is unsupported."))?;
+    let (month_start, _) = summary::month_bounds(now)?;
     let rows = query
-        .query_map([], |row| {
+        .query_map([month_start], |row| {
             Ok((
                 row.get::<_, i64>(0)?,
                 row.get::<_, i64>(1)?,
@@ -143,7 +180,7 @@ fn database_totals(path: &Path, sql: &str) -> Result<Option<Totals>, Failure> {
             ))
         })
         .map_err(|_| Failure::Invalid("Cannot query Gemini usage."))?;
-    let mut totals = Totals::default();
+    let mut totals = Totals::new(now);
     for row in rows {
         let (at, tokens, calls) = row.map_err(|_| Failure::Invalid("Invalid Gemini usage row."))?;
         totals.add(at, tokens, calls);
@@ -151,22 +188,23 @@ fn database_totals(path: &Path, sql: &str) -> Result<Option<Totals>, Failure> {
     Ok(Some(totals))
 }
 
-fn opencode(path: &Path) -> Result<Option<Totals>, Failure> {
+fn opencode(path: &Path, now: &DateTime<Local>) -> Result<Option<Totals>, Failure> {
     database_totals(path, "SELECT time_created,
         CASE WHEN json_extract(data, '$.tokens.total') > 0 THEN json_extract(data, '$.tokens.total') ELSE
         coalesce(json_extract(data, '$.tokens.input'),0) + coalesce(json_extract(data, '$.tokens.output'),0) +
         coalesce(json_extract(data, '$.tokens.reasoning'),0) + coalesce(json_extract(data, '$.tokens.cache.read'),0) +
         coalesce(json_extract(data, '$.tokens.cache.write'),0) END, 1
-        FROM message WHERE json_extract(data, '$.role') = 'assistant' AND json_extract(data, '$.providerID') = 'google'")
+        FROM message WHERE time_created >= ?1 AND json_extract(data, '$.role') = 'assistant' AND json_extract(data, '$.providerID') = 'google'", now)
 }
 
-fn hermes(path: &Path) -> Result<Option<Totals>, Failure> {
+fn hermes(path: &Path, now: &DateTime<Local>) -> Result<Option<Totals>, Failure> {
     // Hermes includes reasoning in output_tokens; adding it again would double-count.
     database_totals(
         path,
         "SELECT cast(last_seen * 1000 AS INTEGER),
         input_tokens + cache_read_tokens + cache_write_tokens + output_tokens, api_call_count
-        FROM session_model_usage WHERE billing_provider = 'gemini'",
+        FROM session_model_usage WHERE billing_provider = 'gemini' AND last_seen >= ?1 / 1000.0",
+        now,
     )
 }
 
@@ -177,7 +215,8 @@ mod tests {
 
     #[test]
     fn repeated_completed_records_count_once_and_aborted_turns_do_not_count() {
-        let stamp = Local::now().to_rfc3339();
+        let now = Local::now();
+        let stamp = now.to_rfc3339();
         let records = [
             json!({"id":"one","type":"gemini","timestamp":stamp}),
             json!({"id":"one","type":"gemini","timestamp":stamp,"tokens":{"total":10}}),
@@ -189,8 +228,8 @@ mod tests {
             .map(Value::to_string)
             .collect::<Vec<_>>()
             .join("\n");
-        let mut totals = Totals::default();
-        add_cli_records(&mut totals, &log);
+        let mut totals = Totals::new(&now);
+        read_cli_records(&mut totals, std::io::Cursor::new(log)).unwrap();
         assert_eq!((totals.today, totals.month, totals.calls), (20, 20, 1));
     }
 }

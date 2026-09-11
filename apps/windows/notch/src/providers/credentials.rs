@@ -21,10 +21,14 @@ pub fn token(entry: &Value) -> Option<String> {
 }
 
 pub fn opencode_auth() -> Result<Value, Failure> {
+    Ok(json_file(&opencode_directory()?.join("auth.json"))?.unwrap_or(Value::Null))
+}
+
+pub(super) fn opencode_directory() -> Result<std::path::PathBuf, Failure> {
     let root = std::env::var_os("XDG_DATA_HOME")
         .map(std::path::PathBuf::from)
         .unwrap_or(home()?.join(".local/share"));
-    Ok(json_file(&root.join("opencode/auth.json"))?.unwrap_or(Value::Null))
+    Ok(root.join("opencode"))
 }
 
 pub fn glm() -> Result<(String, &'static str), Failure> {
