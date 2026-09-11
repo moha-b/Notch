@@ -37,7 +37,9 @@ pub fn save_settings(app: AppHandle, settings: Config) -> Result<(), String> {
     crate::config::try_save(&settings)?;
     *current = settings.clone();
     drop(current);
-    crate::place_notch(&app);
+    // Placement may open or close per-display windows, which must not happen on this command's thread
+    let placer = app.clone();
+    std::thread::spawn(move || crate::place_notch(&placer));
     app.emit("settings", &settings).map_err(|e| e.to_string())
 }
 

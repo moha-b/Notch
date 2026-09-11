@@ -1,15 +1,21 @@
-use tauri::{AppHandle, Manager};
+use tauri::WebviewWindow;
 
+/// Limits interaction to the calling notch window's visible controls; every display's notch reports its own.
 #[tauri::command]
-pub fn set_hit_regions(app: AppHandle, rects: Vec<[f64; 4]>) -> Result<(), String> {
-    let rectangles = validated_rectangles(&rects)?;
-    let window = app
-        .get_webview_window("notch")
-        .ok_or("Notch window is unavailable.")?;
+pub fn set_hit_regions(window: WebviewWindow, rects: Vec<[f64; 4]>) -> Result<(), String> {
+    apply(&window, &validated_rectangles(&rects)?)
+}
+
+/// A new notch window takes no clicks until its page reports where its controls are.
+pub fn clear(window: &WebviewWindow) -> Result<(), String> {
+    apply(window, &[])
+}
+
+fn apply(window: &WebviewWindow, rectangles: &[[i32; 4]]) -> Result<(), String> {
     #[cfg(windows)]
     {
         let handle = window.hwnd().map_err(|error| error.to_string())?;
-        native::apply(handle.0 as isize, &rectangles)
+        native::apply(handle.0 as isize, rectangles)
     }
     #[cfg(not(windows))]
     {

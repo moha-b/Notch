@@ -16,6 +16,10 @@
 <p class="secondary">Borrowed credentials remain read-only. Gemini usage comes from local logs; API secrets are never read.</p></section>
 <section id="appearance" hidden><h2>Appearance</h2>
 <label>Screen edge <select data-setting="edge"><option>right</option><option>left</option><option>top</option><option>bottom</option></select></label>
+<label>Show notch on <select data-setting="scope"><option value="main_display">Main display</option><option value="all_displays">All displays</option></select></label>
+<p class="secondary">Main display shows one notch. With All displays, each display gets its own notch, and hovering one opens only that one.</p>
+<label>Visibility <select data-setting="visibility"><option value="always_show">Always show</option><option value="on_hover">Show on hover</option><option value="hidden">Hide</option></select></label>
+<p class="secondary">Always show keeps every reading open. Show on hover opens the notch when the pointer reaches it. Hide removes it from the screen; alert sounds still play, and Settings stays in the tray.</p>
 <label>Display <select id="display"><option value="">Main display</option></select></label>
 <label><input type="checkbox" data-setting="follow_focus"> Follow active window</label>
 <label>Size <input type="range" data-setting="scale" min="0.5" max="2" step="0.05"></label>

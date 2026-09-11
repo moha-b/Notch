@@ -84,10 +84,11 @@ pub fn reset_bar(app: &AppHandle) {
     place_notch(app);
 }
 
-/// Drag along the right edge. The page calls this once after a press on the pill moves more than
+/// Drag along the notch's edge. The page calls this once after a press on the pill moves more than
 /// 4 px; from then on a Rust thread follows the system cursor (WebView mousemove is unreliable
-/// once the window itself starts moving). Releasing the left button ends the drag and the centre
-/// ratio is written back to the config.
+/// once dragging starts). The window already spans its monitor's whole edge, so the drag moves the
+/// pill inside it: the pointer's position along the edge of that window's own monitor becomes the
+/// shared offset, every display's notch follows it live, and releasing the left button saves it.
 static DRAGGING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 #[cfg(windows)]
@@ -101,52 +102,40 @@ fn left_button_down() -> bool {
 }
 
 #[tauri::command]
-fn drag_begin(app: AppHandle) {
+fn drag_begin(app: AppHandle, window: tauri::WebviewWindow) {
     if DRAGGING.swap(true, std::sync::atomic::Ordering::SeqCst) {
         return;
     }
     std::thread::spawn(move || {
-        let Some(w) = app.get_webview_window("notch") else {
+        let Some(monitor) = placement::current_frame(&window) else {
             DRAGGING.store(false, std::sync::atomic::Ordering::SeqCst);
             return;
         };
-        let (Ok(start_cur), Ok(start_pos), Ok(size), Ok(Some(mon))) =
-            (app.cursor_position(), w.outer_position(), w.outer_size(), w.primary_monitor())
-        else {
-            DRAGGING.store(false, std::sync::atomic::Ordering::SeqCst);
-            return;
-        };
-        let (my, mh) = (mon.position().y, mon.size().height as i32);
-        let wh = size.height as i32;
-        let lo = my;
-        let hi = my + (mh - wh).max(0);
-        let mut last_y = start_pos.y;
-        let mut moved = false;
-        loop {
-            if !left_button_down() {
-                break;
-            }
+        let edge = app.state::<AppState>().cfg.lock().unwrap().edge.clone();
+        let mut last: Option<f64> = None;
+        while left_button_down() {
             if let Ok(cur) = app.cursor_position() {
-                let ny = (start_pos.y as f64 + (cur.y - start_cur.y)).round() as i32;
-                let ny = ny.clamp(lo, hi);
-                if ny != last_y {
-                    last_y = ny;
-                    moved = true;
-                    let _ = w.set_position(tauri::PhysicalPosition::new(start_pos.x, ny));
+                let ratio = placement::along_ratio(&edge, monitor, (cur.x, cur.y));
+                if last.is_none_or(|previous| (previous - ratio).abs() > 0.002) {
+                    last = Some(ratio);
+                    let settings = {
+                        let st = app.state::<AppState>();
+                        let mut c = st.cfg.lock().unwrap();
+                        c.notch_y = ratio;
+                        c.clone()
+                    };
+                    let _ = app.emit("settings", &settings);
                 }
             }
-            std::thread::sleep(std::time::Duration::from_millis(8));
+            std::thread::sleep(std::time::Duration::from_millis(16));
         }
-        if moved {
-            let ratio = ((last_y + wh / 2 - my) as f64 / mh as f64).clamp(0.0, 1.0);
+        if let Some(ratio) = last {
             let st = app.state::<AppState>();
-            let mut c = st.cfg.lock().unwrap();
-            c.notch_y = ratio;
-            config::save(&c);
-            applog(&format!("notch drag: y={last_y} ratio={ratio:.3}"));
+            config::save(&st.cfg.lock().unwrap());
+            applog(&format!("notch drag: edge={edge} ratio={ratio:.3}"));
         }
         DRAGGING.store(false, std::sync::atomic::Ordering::SeqCst);
-        let _ = app.emit("drag_end", moved);
+        let _ = app.emit("drag_end", last.is_some());
     });
 }
 pub fn place_bar(app: &AppHandle) {
@@ -172,29 +161,26 @@ pub fn apply_lang(app: &AppHandle, lang: &str) {
     broadcast(app);
 }
 
-/// The notch must never take focus: WS_EX_NOACTIVATE + WS_EX_TOOLWINDOW
+/// A notch window must never take focus: WS_EX_NOACTIVATE + WS_EX_TOOLWINDOW
 #[cfg(windows)]
-fn noactivate(app: &AppHandle) {
+pub fn noactivate(w: &tauri::WebviewWindow) {
     use windows::Win32::UI::WindowsAndMessaging::{
         GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
     };
-    if let Some(w) = app.get_webview_window("notch") {
-        if let Ok(h) = w.hwnd() {
-            unsafe {
-                let hwnd =
-                    windows::Win32::Foundation::HWND(h.0 as isize as *mut core::ffi::c_void);
-                let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-                SetWindowLongPtrW(
-                    hwnd,
-                    GWL_EXSTYLE,
-                    ex | WS_EX_NOACTIVATE.0 as isize | WS_EX_TOOLWINDOW.0 as isize,
-                );
-            }
+    if let Ok(h) = w.hwnd() {
+        unsafe {
+            let hwnd = windows::Win32::Foundation::HWND(h.0 as isize as *mut core::ffi::c_void);
+            let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            SetWindowLongPtrW(
+                hwnd,
+                GWL_EXSTYLE,
+                ex | WS_EX_NOACTIVATE.0 as isize | WS_EX_TOOLWINDOW.0 as isize,
+            );
         }
     }
 }
 #[cfg(not(windows))]
-fn noactivate(_app: &AppHandle) {}
+pub fn noactivate(_w: &tauri::WebviewWindow) {}
 
 // ---------------- commands ----------------
 
@@ -291,19 +277,27 @@ fn open_provider_page(provider: String) {
     let _ = cmd.spawn();
 }
 
-/// Card expansion state: Some(hot rectangles, in **physical pixels** relative to the window's
-/// top-left as x,y,w,h) = expanded; None = collapsed. The page converts the rectangles with its
-/// own devicePixelRatio before reporting them, so no scale conversion happens on this side —
-/// WebView2's DPR and the window's scale_factor can disagree (see report_dpr).
-static HOT: Mutex<Option<Vec<[f64; 4]>>> = Mutex::new(None);
+/// Card expansion state per notch window label: hot rectangles in **physical pixels** relative to
+/// that window's top-left as x,y,w,h, present only while its card is expanded. The page converts the
+/// rectangles with its own devicePixelRatio before reporting them, so no scale conversion happens
+/// on this side — WebView2's DPR and the window's scale_factor can disagree (see report_dpr).
+static HOT: Mutex<std::collections::BTreeMap<String, Vec<[f64; 4]>>> =
+    Mutex::new(std::collections::BTreeMap::new());
 
 #[tauri::command]
-fn set_expanded(on: bool, rects: Option<Vec<[f64; 4]>>) {
-    *HOT.lock().unwrap() = if on { Some(rects.unwrap_or_default()) } else { None };
+fn set_expanded(window: tauri::WebviewWindow, on: bool, rects: Option<Vec<[f64; 4]>>) {
+    let mut hot = HOT.lock().unwrap();
+    if on {
+        hot.insert(window.label().to_string(), rects.unwrap_or_default());
+    } else {
+        hot.remove(window.label());
+    }
 }
 
-/// The WebView zoom currently applied (1.0 = uncorrected)
-static ZOOM: Mutex<f64> = Mutex::new(1.0);
+/// Per notch window: the WebView zoom currently applied (1.0 = uncorrected) and how many
+/// corrections it has had
+static ZOOM: Mutex<std::collections::BTreeMap<String, (f64, u32)>> =
+    Mutex::new(std::collections::BTreeMap::new());
 
 pub fn applog(line: &str) {
     use std::io::Write;
@@ -316,32 +310,34 @@ pub fn applog(line: &str) {
 /// Root cause: with two monitors (150 % / 200 %) WebView2 picked a devicePixelRatio of 2.0 while
 /// the window was sized for the primary monitor's 1.5, so the page was 255 CSS px wide instead of
 /// the designed 340 and every coordinate conversion was off (the watchdog misfired and the card
-/// flashed away). Fix: the page reports its DPR, and when it differs from the primary monitor's
-/// scale, set_zoom pulls the effective DPR back to that scale, restoring the 340 px width.
+/// flashed away). Fix: the page reports its DPR, and when it differs from the scale of the monitor
+/// the window is actually on, set_zoom pulls the effective DPR back to that scale, restoring the
+/// 340 px width. Each display's notch window keeps its own zoom.
 #[tauri::command]
-fn report_dpr(app: AppHandle, dpr: f64, w: f64, h: f64) {
-    let Some(win) = app.get_webview_window("notch") else { return };
-    let want = win
-        .primary_monitor()
+fn report_dpr(window: tauri::WebviewWindow, dpr: f64, w: f64, h: f64) {
+    let want = window
+        .current_monitor()
         .ok()
         .flatten()
         .map(|m| m.scale_factor())
-        .unwrap_or_else(|| win.scale_factor().unwrap_or(1.0));
-    let mut z = ZOOM.lock().unwrap();
+        .unwrap_or_else(|| window.scale_factor().unwrap_or(1.0));
+    let mut zooms = ZOOM.lock().unwrap();
+    let (z, corrections) = zooms.entry(window.label().to_string()).or_insert((1.0, 0));
     let base = if *z > 0.0 { dpr / *z } else { dpr };
     let target = if base > 0.0 { want / base } else { 1.0 };
     applog(&format!(
-        "dpr report: dpr={dpr:.3} viewport={w:.0}x{h:.0} monitor_scale={want:.3} zoom_applied={:.3} -> target_zoom={target:.3}",
+        "dpr report {}: dpr={dpr:.3} viewport={w:.0}x{h:.0} monitor_scale={want:.3} zoom_applied={:.3} -> target_zoom={target:.3}",
+        window.label(),
         *z
     ));
-    // Oscillation guard: at most three corrections per process (if the DPR does not follow the zoom, stop chasing it)
-    static APPLIED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    // Oscillation guard: at most three corrections per window (if the DPR does not follow the zoom, stop chasing it)
     if (dpr - want).abs() > 0.02
         && (target - *z).abs() > 0.01
         && (0.25..=4.0).contains(&target)
-        && APPLIED.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 3
+        && *corrections < 3
     {
-        match win.set_zoom(target) {
+        *corrections += 1;
+        match window.set_zoom(target) {
             Ok(()) => {
                 *z = target;
                 applog(&format!("dpr correction: set_zoom({target:.3}) ok"));
@@ -360,52 +356,52 @@ fn report_dpr(app: AppHandle, dpr: f64, w: f64, h: f64) {
 /// between them), and two consecutive misses (300 ms) count as leaving.
 fn start_pointer_watchdog(app: AppHandle) {
     std::thread::spawn(move || {
-        let mut miss = 0u8;
+        // Each display's notch is watched on its own; only the window whose card is open is told the pointer left
+        let mut misses: std::collections::BTreeMap<String, u8> = Default::default();
         loop {
             std::thread::sleep(std::time::Duration::from_millis(150));
-            let rects = match HOT.lock().unwrap().clone() {
-                Some(r) => r,
-                None => {
-                    miss = 0;
-                    continue;
+            let expanded = HOT.lock().unwrap().clone();
+            misses.retain(|label, _| expanded.contains_key(label));
+            let Ok(cur) = app.cursor_position() else { continue };
+            for (label, rects) in expanded {
+                let Some(w) = app.get_webview_window(&label) else { continue };
+                let Ok(pos) = w.outer_position() else { continue };
+                // Cursor position relative to the window's top-left, in physical pixels; the hot rectangles are physical too, so no scale conversion
+                let lx = cur.x - pos.x as f64;
+                let ly = cur.y - pos.y as f64;
+                const PAD: f64 = 10.0;
+                let in_window = w
+                    .outer_size()
+                    .map(|s| lx >= 0.0 && ly >= 0.0 && lx < s.width as f64 && ly < s.height as f64)
+                    .unwrap_or(true);
+                let mut inside = in_window && rects.iter().any(|r| {
+                    lx >= r[0] - PAD && ly >= r[1] - PAD && lx < r[0] + r[2] + PAD && ly < r[1] + r[3] + PAD
+                });
+                // The gap between hot rectangles (pill and card) counts as inside: use the bounding box of all of them
+                if !inside && in_window && rects.len() > 1 {
+                    let x0 = rects.iter().map(|r| r[0]).fold(f64::MAX, f64::min);
+                    let y0 = rects.iter().map(|r| r[1]).fold(f64::MAX, f64::min);
+                    let x1 = rects.iter().map(|r| r[0] + r[2]).fold(f64::MIN, f64::max);
+                    let y1 = rects.iter().map(|r| r[1] + r[3]).fold(f64::MIN, f64::max);
+                    inside = lx >= x0 && ly >= y0 && lx < x1 && ly < y1;
                 }
-            };
-            let Some(w) = app.get_webview_window("notch") else { continue };
-            let (Ok(pos), Ok(cur)) = (w.outer_position(), app.cursor_position()) else { continue };
-            // Cursor position relative to the window's top-left, in physical pixels; the hot rectangles are physical too, so no scale conversion
-            let lx = cur.x - pos.x as f64;
-            let ly = cur.y - pos.y as f64;
-            const PAD: f64 = 10.0;
-            let in_window = w
-                .outer_size()
-                .map(|s| lx >= 0.0 && ly >= 0.0 && lx < s.width as f64 && ly < s.height as f64)
-                .unwrap_or(true);
-            let mut inside = in_window && rects.iter().any(|r| {
-                lx >= r[0] - PAD && ly >= r[1] - PAD && lx < r[0] + r[2] + PAD && ly < r[1] + r[3] + PAD
-            });
-            // The gap between hot rectangles (pill and card) counts as inside: use the bounding box of all of them
-            if !inside && in_window && rects.len() > 1 {
-                let x0 = rects.iter().map(|r| r[0]).fold(f64::MAX, f64::min);
-                let y0 = rects.iter().map(|r| r[1]).fold(f64::MAX, f64::min);
-                let x1 = rects.iter().map(|r| r[0] + r[2]).fold(f64::MIN, f64::max);
-                let y1 = rects.iter().map(|r| r[1] + r[3]).fold(f64::MIN, f64::max);
-                inside = lx >= x0 && ly >= y0 && lx < x1 && ly < y1;
-            }
-            static LOGGED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-            if LOGGED.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 12 {
-                applog(&format!(
-                    "watchdog: cursor_rel=({lx:.0},{ly:.0}) inside={inside} rects={rects:?} winpos=({},{})",
-                    pos.x, pos.y
-                ));
-            }
-            if inside {
-                miss = 0;
-            } else {
-                miss += 1;
-                if miss >= 2 {
-                    miss = 0;
-                    *HOT.lock().unwrap() = None;
-                    let _ = app.emit("pointer_left", ());
+                static LOGGED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+                if LOGGED.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 12 {
+                    applog(&format!(
+                        "watchdog {label}: cursor_rel=({lx:.0},{ly:.0}) inside={inside} rects={rects:?} winpos=({},{})",
+                        pos.x, pos.y
+                    ));
+                }
+                let miss = misses.entry(label.clone()).or_insert(0);
+                if inside {
+                    *miss = 0;
+                } else {
+                    *miss += 1;
+                    if *miss >= 2 {
+                        *miss = 0;
+                        HOT.lock().unwrap().remove(&label);
+                        let _ = app.emit("pointer_left", &label);
+                    }
                 }
             }
         }
@@ -618,13 +614,15 @@ fn main() {
             if !handle.state::<AppState>().cfg.lock().unwrap().onboarding_complete {
                 settings::open_settings(handle.clone()).map_err(std::io::Error::other)?;
             }
+            // The configured main window gets the notch style first; placement then opens any other
+            // display's window and shows them all unless the notch is hidden
+            let main_window = handle
+                .get_webview_window(placement::MAIN_WINDOW)
+                .ok_or_else(|| std::io::Error::other("The notch window is missing."))?;
+            hit_regions::clear(&main_window).map_err(std::io::Error::other)?;
+            noactivate(&main_window);
             place_notch(&handle);
-            hit_regions::set_hit_regions(handle.clone(), Vec::new()).map_err(std::io::Error::other)?;
-            noactivate(&handle);
             placement::watch(handle.clone());
-            if let Some(w) = handle.get_webview_window("notch") {
-                let _ = w.show();
-            }
             tray::setup(&handle)?;
             server::start(handle.clone(), port);
             watcher::start(handle.clone());

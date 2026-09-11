@@ -41,12 +41,20 @@ function renderProviders() {
   });
 }
 
+// All displays draws a notch on every monitor, so picking one monitor or following the active window no longer applies
+function syncDisplayControls() {
+  const everyDisplay = document.querySelector('[data-setting=scope]').value === 'all_displays';
+  document.querySelector('#display').disabled = everyDisplay;
+  document.querySelector('[data-setting=follow_focus]').disabled = everyDisplay;
+}
+
 function renderSettings() {
   document.querySelectorAll('[data-setting]').forEach(input => {
     const setting = settings[input.dataset.setting];
     if (input.type === 'checkbox') input.checked = setting; else input.value = setting ?? '';
   });
   document.querySelector('#display').value = settings.display || '';
+  syncDisplayControls();
   renderProviders();
 }
 
@@ -100,8 +108,10 @@ action('#save-key', async () => {
 action('#delete-key', async () => { await invoke('delete_ollama_key'); status.textContent = 'Saved key removed.'; });
 action('#reset-display', async () => {
   settings.display = null; settings.edge = 'right'; settings.notch_y = 0.5; settings.scale = 1;
+  settings.scope = 'main_display'; settings.visibility = 'on_hover';
   renderSettings(); await saveSettings();
 });
+document.querySelector('[data-setting=scope]').addEventListener('change', syncDisplayControls);
 initialize().catch(error => { status.textContent = String(error); });
 
 function showUpdate(update) {

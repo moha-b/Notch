@@ -33,6 +33,12 @@ impl Config {
         if !self.notch_y.is_finite() || !(0.0..=1.0).contains(&self.notch_y) {
             return Err("Offset must be between 0 and 1.".into());
         }
+        if !["main_display", "all_displays"].contains(&self.scope.as_str()) {
+            return Err("Unknown display scope.".into());
+        }
+        if !["always_show", "on_hover", "hidden"].contains(&self.visibility.as_str()) {
+            return Err("Unknown notch visibility.".into());
+        }
         Ok(())
     }
 
@@ -103,6 +109,8 @@ mod tests {
             json!({"reset_format":"bad"}),
             json!({"peek_seconds":61}),
             json!({"port":0}),
+            json!({"scope":"everywhere"}),
+            json!({"visibility":"sometimes"}),
             json!({"gemini_monthly_budget":0}),
             json!({"gemini_monthly_budget":9007199254740992u64}),
             json!({"provider_order":["claude","claude"]}),
@@ -113,6 +121,7 @@ mod tests {
             );
         }
         assert!(super::super::decode(br#"{"scale":0.5,"notch_y":0}"#).is_ok());
+        assert!(super::super::decode(br#"{"scope":"all_displays","visibility":"hidden"}"#).is_ok());
         assert!(super::super::decode(br#"{"gemini_monthly_budget":null}"#).is_ok());
         assert!(super::super::decode(br#"{"gemini_monthly_budget":1000000}"#).is_ok());
         assert!(super::super::decode(br#"{"scale":2,"notch_y":1,"peek_seconds":60}"#).is_ok());

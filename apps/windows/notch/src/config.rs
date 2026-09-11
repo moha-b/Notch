@@ -12,6 +12,10 @@ pub struct Config {
     pub edge: String,
     pub display: Option<String>,
     pub follow_focus: bool,
+    /// "main_display" | "all_displays": one notch, or one per monitor (Mac `NotchScreenScope`)
+    pub scope: String,
+    /// "always_show" | "on_hover" | "hidden" (Mac `NotchVisibility`)
+    pub visibility: String,
     pub scale: f64,
     pub accent: String,
     pub reset_format: String,
@@ -65,6 +69,8 @@ impl Default for Config {
             edge: "right".into(),
             display: None,
             follow_focus: false,
+            scope: "main_display".into(),
+            visibility: "on_hover".into(),
             scale: 1.0,
             accent: "#00FF88".into(),
             reset_format: "relative".into(),

@@ -3,6 +3,7 @@
   "description": "Notch bar & panel: allow core APIs (event.listen is required for state broadcasts)",
   "windows": [
     "notch",
+    "notch-*",
     "settings"
   ],
   "permissions": [
