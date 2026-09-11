@@ -2,7 +2,7 @@
 
 Updated September 11, 2026. Continue implementation in the existing checkout. This is a handoff of work in progress, not a launch approval or a completed parity claim.
 
-> **Status update:** The Gemini slice below was reviewed, completed and committed as `553063d`; both native lanes passed in [run 34575972466](https://github.com/moha-b/Notch/actions/runs/34575972466). Review follow-ups aligned per-source window ids and the compact budget label with the Mac provider. The preview helper now injects its bridge into pages without `<head>`. Continue with the remaining work after Gemini. Live-account validation of Gemini sources is still pending.
+> **Status update:** The Gemini slice below was reviewed, completed and committed as `553063d`; both native lanes passed in [run 34575972466](https://github.com/moha-b/Notch/actions/runs/34575972466). Review follow-ups aligned per-source window ids and the compact budget label with the Mac provider. The preview helper now injects its bridge into pages without `<head>`. Continue with the remaining work after Gemini. Live-account validation of Gemini sources is still pending. Follow-up commits through `c581b68` (optional Command Code organization, disabled-provider activity gating, Claude transcript watcher pause) passed both native lanes in [run 34577329689](https://github.com/moha-b/Notch/actions/runs/34577329689). Open owner decision: whether a disabled provider's hook and session activity should be ignored or only hidden on both platforms; the Mac session monitors currently ignore the disconnected set.
 
 ## Start here
 

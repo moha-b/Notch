@@ -4,7 +4,7 @@ Notch remains a development product. Passing build lanes do not establish featur
 
 ## Verified milestones
 
-- Native tests, Windows installer lifecycle and Mac development DMG passed for `553063d` in [candidate run 34575972466](https://github.com/moha-b/Notch/actions/runs/34575972466). This includes the Gemini budget/log slice and the earlier credential-hardening batch ([run 34515435708](https://github.com/moha-b/Notch/actions/runs/34515435708) for `dd8d809`).
+- Native tests, Windows installer lifecycle and Mac development DMG passed for `c581b68` in [candidate run 34577329689](https://github.com/moha-b/Notch/actions/runs/34577329689). This includes the Command Code organization and disabled-provider fixes, the Gemini budget/log slice (first passing for `553063d` in [run 34575972466](https://github.com/moha-b/Notch/actions/runs/34575972466)), and the earlier credential-hardening batch ([run 34515435708](https://github.com/moha-b/Notch/actions/runs/34515435708) for `dd8d809`).
 - Named Windows Claude and Codex profiles use separate credentials and cached readings. Tests cover credential separation and profile-specific stale rollout fallback. Profile session activity and hooks still need parity work.
 - The GitHub `production` environment requires `moha-b` review and permits only the `main` branch. Apple and updater signing credentials remain owner setup requirements.
 - Release preparation rejects existing versions and tags. Publication creates its source tag atomically; a failed feed publication can resume only after verifying the same public build. This recovery path has policy tests; a complete signed publication exercise remains pending.
