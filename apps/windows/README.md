@@ -71,7 +71,7 @@ npm install --global @tauri-apps/cli@2.11.4
 
 This builds the helper first and puts the installer in `target/release/bundle/nsis/`.
 Use the default target directory; the bundle resource path points to
-`target/release/codenotch-hook.exe`. See [release and validation notes](docs/releases.md).
+`target/release/codenotch-hook.exe`. See [release and installer qualification](https://github.com/moha-b/Notch/issues/4).
 
 ### Icons
 
