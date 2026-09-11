@@ -278,9 +278,8 @@ fn command_get(path: &str, token: &str) -> Result<Value, Failure> {
 pub fn commandcode() -> Result<Vec<LimitWindow>, Failure> {
     let token = credentials::commandcode()?;
     let whoami = command_get("/whoami", &token)?;
-    let org = whoami["org"]["id"]
-        .as_str()
-        .ok_or(Failure::Invalid("Command Code organization is missing."))?;
+    // Like the Mac app, an account without an organization omits orgId instead of failing.
+    let org = whoami["org"]["id"].as_str().filter(|org| !org.is_empty());
     let query = command_query(org, &Value::Null)?;
     let credits = command_get(&format!("/billing/credits?{query}"), &token)?;
     let subscriptions = command_get(&format!("/billing/subscriptions?{query}"), &token)?;
@@ -331,30 +330,30 @@ mod tests {
     }
 
     #[test]
-    fn billing_query_preserves_organization_and_optional_timestamp() {
-        for (period, expected) in [
-            (serde_json::json!({}), None),
+    fn billing_query_preserves_optional_organization_and_timestamp() {
+        for (org, period, expected) in [
+            (Some("organization +/?&"), serde_json::json!({}), None),
             (
+                None,
                 serde_json::json!({"currentPeriodStart":"2026-09-01T00:00:00Z"}),
                 Some("2026-09-01T00:00:00+00:00"),
             ),
         ] {
-            let query = command_query("organization +/?&", &period).unwrap();
+            let query = command_query(org, &period).unwrap();
             let url = tauri::Url::parse(&format!("https://api.commandcode.ai/?{query}")).unwrap();
             let pairs: std::collections::HashMap<_, _> = url.query_pairs().collect();
-            assert_eq!(
-                pairs.get("orgId").map(|org| org.as_ref()),
-                Some("organization +/?&")
-            );
+            assert_eq!(pairs.get("orgId").map(|value| value.as_ref()), org);
             assert_eq!(pairs.get("since").map(|since| since.as_ref()), expected);
         }
     }
 }
 
-fn command_query(org: &str, period: &Value) -> Result<String, Failure> {
+fn command_query(org: Option<&str>, period: &Value) -> Result<String, Failure> {
     let mut url = tauri::Url::parse("https://api.commandcode.ai")
         .map_err(|_| Failure::Invalid("Invalid API URL."))?;
-    url.query_pairs_mut().append_pair("orgId", org);
+    if let Some(org) = org {
+        url.query_pairs_mut().append_pair("orgId", org);
+    }
     if let Some(start) = reset(&period["currentPeriodStart"]) {
         let start = i64::try_from(start)
             .ok()
